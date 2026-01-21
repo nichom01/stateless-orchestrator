@@ -1,4 +1,4 @@
-# Stateless Orchestrator - Spring Boot
+# Stateless Orchestrator
 
 A configurable, production-ready stateless orchestrator for event-driven microservices. Routes events based on declarative YAML/JSON configuration without maintaining workflow state.
 
