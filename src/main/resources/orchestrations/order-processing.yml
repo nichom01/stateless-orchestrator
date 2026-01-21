@@ -1,0 +1,42 @@
+name: "Order Processing"
+version: "1.0.0"
+description: "Routes events for e-commerce order processing"
+
+settings:
+  queuePrefix: "order-processing"
+  auditEnabled: true
+  metricsEnabled: true
+  defaultTimeoutMs: 30000
+
+routes:
+  - eventType: "OrderCreated"
+    description: "New order submitted by customer"
+    defaultTarget: "validation-service-queue"
+    enabled: true
+    tags:
+      - "order"
+      - "entry-point"
+
+  - eventType: "OrderValidated"
+    description: "Order has passed validation"
+    defaultTarget: "inventory-service-queue"
+    enabled: true
+    tags:
+      - "order"
+      - "validation"
+
+  - eventType: "InventoryReserved"
+    description: "Inventory has been reserved for order"
+    defaultTarget: "payment-service-queue"
+    enabled: true
+    tags:
+      - "order"
+      - "inventory"
+
+  - eventType: "PaymentSucceeded"
+    description: "Payment processed successfully"
+    defaultTarget: "fulfillment-service-queue"
+    enabled: true
+    tags:
+      - "order"
+      - "payment"

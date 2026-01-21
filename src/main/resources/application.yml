@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: stateless-orchestrator
+  # Default profile - use 'dev' for local development with LocalStack, 'prod' for AWS
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  
+  # Conditional auto-configuration exclusion
+  # These AWS services are not used by the orchestrator
+  autoconfigure:
+    exclude:
+      - io.awspring.cloud.autoconfigure.config.secretsmanager.SecretsManagerAutoConfiguration
+      - io.awspring.cloud.autoconfigure.config.parameterstore.ParameterStoreAutoConfiguration
+      - io.awspring.cloud.autoconfigure.core.AwsAutoConfiguration
+      - io.awspring.cloud.autoconfigure.core.CredentialsProviderAutoConfiguration
+      - io.awspring.cloud.autoconfigure.core.RegionProviderAutoConfiguration
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# Orchestrator Configuration
+orchestrator:
+  # Configuration file location
+  config:
+    # NEW: Multi-file orchestration support
+    # Uncomment to use multiple orchestration files:
+    # files:
+    #   - name: "order-processing"
+    #     path: "classpath:orchestrations/order-processing.yml"
+    #   - name: "user-registration"
+    #     path: "classpath:orchestrations/user-registration.yml"
+    # defaultOrchestration: "order-processing"
+    
+    # LEGACY: Single file mode (default, for backward compatibility)
+    file: classpath:orchestration-config.yml
+  
+  # Input queue name
+  queue:
+    input: orchestrator-input
+  
+  # Messaging broker configuration
+  messaging:
+    # Default to sqs, can be overridden via environment variable MESSAGING_BROKER
+    broker: ${MESSAGING_BROKER:sqs}
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.neversoft.orchestrator: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

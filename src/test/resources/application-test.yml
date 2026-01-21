@@ -1,0 +1,8 @@
+orchestrator:
+  config:
+    files:
+      - name: "order-processing"
+        path: "classpath:orchestrations/order-processing.yml"
+      - name: "user-registration"
+        path: "classpath:orchestrations/user-registration.yml"
+    defaultOrchestration: "order-processing"

@@ -1,0 +1,19 @@
+name: "User Registration"
+version: "1.0"
+description: "User registration orchestration for tests"
+
+routes:
+  - eventType: "UserRegistered"
+    description: "Route user registration to email verification"
+    defaultTarget: "email-verification-queue"
+    enabled: true
+  
+  - eventType: "EmailVerified"
+    description: "Route verified emails to welcome message"
+    defaultTarget: "welcome-message-queue"
+    enabled: true
+  
+  - eventType: "ProfileCreated"
+    description: "Route profile creation to notification"
+    defaultTarget: "notification-service-queue"
+    enabled: true

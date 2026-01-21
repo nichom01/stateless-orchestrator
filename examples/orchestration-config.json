@@ -1,0 +1,76 @@
+{
+  "name": "Order Processing Orchestration",
+  "version": "1.0.0",
+  "description": "Routes events for e-commerce order processing workflow",
+  "settings": {
+    "queuePrefix": "order-processing",
+    "auditEnabled": true,
+    "metricsEnabled": true,
+    "defaultTimeoutMs": 30000
+  },
+  "routes": [
+    {
+      "eventType": "OrderCreated",
+      "description": "New order submitted by customer",
+      "defaultTarget": "validation-service-queue",
+      "enabled": true,
+      "tags": ["order", "entry-point"]
+    },
+    {
+      "eventType": "OrderValidated",
+      "description": "Order has passed validation",
+      "defaultTarget": "inventory-service-queue",
+      "enabled": true,
+      "tags": ["order", "validation"]
+    },
+    {
+      "eventType": "InventoryReserved",
+      "description": "Inventory has been reserved for order",
+      "conditions": [
+        {
+          "condition": "#context['customerTier'] == 'premium'",
+          "target": "express-payment-service-queue",
+          "description": "Premium customers get express payment processing",
+          "priority": 1
+        },
+        {
+          "condition": "#context['orderTotal'] != null && #context['orderTotal'] > 1000",
+          "target": "fraud-check-service-queue",
+          "description": "High-value orders require fraud check",
+          "priority": 2
+        }
+      ],
+      "defaultTarget": "payment-service-queue",
+      "enabled": true,
+      "tags": ["order", "inventory"]
+    },
+    {
+      "eventType": "PaymentSucceeded",
+      "description": "Payment processed successfully",
+      "defaultTarget": "fulfillment-service-queue",
+      "enabled": true,
+      "tags": ["order", "payment"]
+    },
+    {
+      "eventType": "PaymentFailed",
+      "description": "Payment processing failed",
+      "conditions": [
+        {
+          "condition": "#context['inventoryReserved'] == true",
+          "target": "inventory-rollback-service-queue",
+          "description": "Rollback inventory if it was reserved",
+          "priority": 1
+        },
+        {
+          "condition": "#context['retryCount'] != null && #context['retryCount'] < 3",
+          "target": "payment-retry-service-queue",
+          "description": "Retry payment if under retry limit",
+          "priority": 2
+        }
+      ],
+      "defaultTarget": "notification-service-queue",
+      "enabled": true,
+      "tags": ["order", "payment", "error"]
+    }
+  ]
+}

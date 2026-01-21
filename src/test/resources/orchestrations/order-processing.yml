@@ -1,0 +1,24 @@
+name: "Order Processing"
+version: "1.0"
+description: "Order processing orchestration for tests"
+
+routes:
+  - eventType: "OrderCreated"
+    description: "Route order created events to validation"
+    defaultTarget: "validation-service-queue"
+    enabled: true
+  
+  - eventType: "OrderValidated"
+    description: "Route validated orders to inventory"
+    defaultTarget: "inventory-service-queue"
+    enabled: true
+  
+  - eventType: "InventoryReserved"
+    description: "Route to payment with conditional routing"
+    defaultTarget: "payment-service-queue"
+    enabled: true
+    conditions:
+      - condition: "#context['customerTier'] == 'premium'"
+        target: "express-payment-queue"
+        description: "Premium customers get express payment"
+        priority: 1

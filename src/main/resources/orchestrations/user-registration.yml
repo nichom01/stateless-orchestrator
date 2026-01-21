@@ -1,0 +1,34 @@
+name: "User Registration"
+version: "1.0.0"
+description: "Routes events for user registration workflow"
+
+settings:
+  queuePrefix: "user-registration"
+  auditEnabled: true
+  metricsEnabled: true
+  defaultTimeoutMs: 30000
+
+routes:
+  - eventType: "UserRegistered"
+    description: "New user registration submitted"
+    defaultTarget: "email-verification-queue"
+    enabled: true
+    tags:
+      - "user"
+      - "entry-point"
+
+  - eventType: "EmailVerified"
+    description: "User email has been verified"
+    defaultTarget: "profile-setup-queue"
+    enabled: true
+    tags:
+      - "user"
+      - "verification"
+
+  - eventType: "ProfileSetupComplete"
+    description: "User profile setup completed"
+    defaultTarget: "welcome-email-queue"
+    enabled: true
+    tags:
+      - "user"
+      - "profile"
