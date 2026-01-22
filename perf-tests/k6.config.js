@@ -116,20 +116,27 @@ export function submitBulkEvents(events, url = null) {
 
 // Health check function
 export function checkHealth(url = null) {
-  const targetUrl = url || `${config.orchestratorUrl}/api/orchestrator/health`;
-  const response = http.get(targetUrl);
-  
-  return check(response, {
-    'health check status is 200': (r) => r.status === 200,
-    'health check response is UP': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body.status === 'UP';
-      } catch (e) {
-        return false;
-      }
-    },
-  });
+  try {
+    const targetUrl = url || `${config.orchestratorUrl}/api/orchestrator/health`;
+    const response = http.get(targetUrl, { timeout: '10s' });
+    
+    const checks = check(response, {
+      'health check status is 200': (r) => r.status === 200,
+      'health check response is UP': (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body.status === 'UP' || body.status === 'UP';
+        } catch (e) {
+          return false;
+        }
+      },
+    });
+    
+    return checks;
+  } catch (error) {
+    console.error(`Health check failed: ${error.message}`);
+    return false;
+  }
 }
 
 // Common thresholds (can be overridden in individual tests)

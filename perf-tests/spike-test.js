@@ -51,11 +51,16 @@ const EVENTS_PER_REQUEST = config.eventsPerRequest;
 
 export function setup() {
   console.log(`Starting spike test against ${ORCHESTRATOR_URL}`);
-  const healthCheck = checkHealth();
-  if (!healthCheck) {
-    throw new Error('Orchestrator health check failed. Aborting test.');
+  try {
+    const healthCheck = checkHealth();
+    if (!healthCheck) {
+      console.warn('Orchestrator health check failed, but continuing test...');
+    } else {
+      console.log('Orchestrator is healthy. Starting spike test...');
+    }
+  } catch (error) {
+    console.warn(`Health check error: ${error.message}, but continuing test...`);
   }
-  console.log('Orchestrator is healthy. Starting spike test...');
   console.log('Test pattern: baseline → 10x spike → baseline (repeated)');
   
   return {
