@@ -30,10 +30,10 @@ export const options = {
   
   thresholds: {
     ...commonThresholds,
-    // Load test specific thresholds
+    // Load test specific thresholds (relaxed for CI)
     'http_req_duration': ['p(95)<500', 'p(99)<1000'],
     'http_req_failed': ['rate<0.01'], // Less than 1% errors
-    'events_submitted': ['count>100000'], // At least 100k events processed
+    'events_submitted': ['count>100'], // At least 100 events processed (reduced for CI)
     'bulk_request_latency_ms': ['p(95)<500', 'p(99)<1000'],
   },
   

@@ -91,10 +91,12 @@ jobs:
       - name: Run load test
         run: |
           mkdir -p perf-tests/results
+          chmod 777 perf-tests/results
           echo "Running k6 load test..."
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
           docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
@@ -198,7 +200,9 @@ jobs:
       - name: Run stress test
         run: |
           mkdir -p perf-tests/results
+          chmod 777 perf-tests/results
           docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
@@ -288,7 +292,9 @@ jobs:
       - name: Run spike test
         run: |
           mkdir -p perf-tests/results
+          chmod 777 perf-tests/results
           docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
