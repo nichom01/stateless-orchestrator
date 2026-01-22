@@ -1,0 +1,12 @@
+# Test results
+results/
+*.json
+*.html
+
+# Generated test data (keep small ones, ignore large ones)
+test-data/test-data-*.jsonl
+!test-data/test-data-10k.jsonl
+
+# Temporary files
+*.tmp
+*.log

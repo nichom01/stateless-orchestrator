@@ -1,0 +1,270 @@
+name: Performance Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'load'
+        type: choice
+        options:
+          - load
+          - stress
+          - spike
+          - all
+      duration:
+        description: 'Custom test duration (e.g., 10m, 30m)'
+        required: false
+        type: string
+      vus:
+        description: 'Maximum virtual users'
+        required: false
+        type: string
+  schedule:
+    # Run weekly on Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  pull_request:
+    types: [labeled]
+    labels:
+      - 'performance-test'
+
+env:
+  ORCHESTRATOR_URL: http://orchestrator:8080
+  EVENTS_PER_REQUEST: 100
+
+jobs:
+  load-test:
+    name: Load Test
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.test_type == 'load' || github.event.inputs.test_type == 'all') ||
+      github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance-test')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start performance test environment
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d localstack prometheus
+          echo "Waiting for LocalStack to be ready..."
+          sleep 10
+
+      - name: Build orchestrator image
+        run: |
+          docker-compose -f docker-compose.perf.yml build orchestrator
+
+      - name: Start orchestrator
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d orchestrator
+          echo "Waiting for orchestrator to be healthy..."
+          timeout 120 bash -c 'until docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health; do sleep 2; done'
+
+      - name: Generate test data if needed
+        run: |
+          mkdir -p perf-tests/test-data
+          if [ ! -f perf-tests/test-data/test-data-10k.jsonl ]; then
+            node perf-tests/generate-test-data.js 10000 perf-tests/test-data/test-data-10k.jsonl
+          fi
+
+      - name: Run load test
+        run: |
+          mkdir -p perf-tests/results
+          docker-compose -f docker-compose.perf.yml run --rm \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            -v $(pwd)/perf-tests/results:/results \
+            k6 run \
+            --out json=/results/load-test-results.json \
+            --summary-export=/results/load-test-summary.json \
+            /scripts/load-test.js
+        continue-on-error: true
+
+      - name: Collect orchestrator logs
+        if: always()
+        run: |
+          docker logs perf-orchestrator > perf-tests/results/orchestrator-logs.txt 2>&1 || true
+
+      - name: Collect queue statistics
+        if: always()
+        run: |
+          ./scripts/queue-stats.sh > perf-tests/results/queue-stats.txt 2>&1 || true
+
+      - name: Generate HTML report
+        if: always()
+        run: |
+          node perf-tests/scripts/generate-report.js \
+            --input perf-tests/results/load-test-results.json \
+            --output perf-tests/results/load-test-report.html \
+            --type load || echo "Report generation skipped"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: |
+            perf-tests/results/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.perf.yml down -v
+
+  stress-test:
+    name: Stress Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.test_type == 'stress' || github.event.inputs.test_type == 'all') ||
+      github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'performance-test')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start performance test environment
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d localstack prometheus
+          echo "Waiting for LocalStack to be ready..."
+          sleep 10
+
+      - name: Build orchestrator image
+        run: |
+          docker-compose -f docker-compose.perf.yml build orchestrator
+
+      - name: Start orchestrator
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d orchestrator
+          echo "Waiting for orchestrator to be healthy..."
+          timeout 120 bash -c 'until docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health; do sleep 2; done'
+
+      - name: Generate test data if needed
+        run: |
+          mkdir -p perf-tests/test-data
+          if [ ! -f perf-tests/test-data/test-data-50k.jsonl ]; then
+            node perf-tests/generate-test-data.js 50000 perf-tests/test-data/test-data-50k.jsonl
+          fi
+
+      - name: Run stress test
+        run: |
+          mkdir -p perf-tests/results
+          docker-compose -f docker-compose.perf.yml run --rm \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            -v $(pwd)/perf-tests/results:/results \
+            k6 run \
+            --out json=/results/stress-test-results.json \
+            --summary-export=/results/stress-test-summary.json \
+            /scripts/stress-test.js
+        continue-on-error: true
+
+      - name: Collect orchestrator logs
+        if: always()
+        run: |
+          docker logs perf-orchestrator > perf-tests/results/orchestrator-logs-stress.txt 2>&1 || true
+
+      - name: Collect queue statistics
+        if: always()
+        run: |
+          ./scripts/queue-stats.sh > perf-tests/results/queue-stats-stress.txt 2>&1 || true
+
+      - name: Generate HTML report
+        if: always()
+        run: |
+          node perf-tests/scripts/generate-report.js \
+            --input perf-tests/results/stress-test-results.json \
+            --output perf-tests/results/stress-test-report.html \
+            --type stress || echo "Report generation skipped"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-results
+          path: |
+            perf-tests/results/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.perf.yml down -v
+
+  spike-test:
+    name: Spike Test
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.test_type == 'spike' || github.event.inputs.test_type == 'all')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start performance test environment
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d localstack prometheus
+          echo "Waiting for LocalStack to be ready..."
+          sleep 10
+
+      - name: Build orchestrator image
+        run: |
+          docker-compose -f docker-compose.perf.yml build orchestrator
+
+      - name: Start orchestrator
+        run: |
+          docker-compose -f docker-compose.perf.yml up -d orchestrator
+          echo "Waiting for orchestrator to be healthy..."
+          timeout 120 bash -c 'until docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health; do sleep 2; done'
+
+      - name: Run spike test
+        run: |
+          mkdir -p perf-tests/results
+          docker-compose -f docker-compose.perf.yml run --rm \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            -v $(pwd)/perf-tests/results:/results \
+            k6 run \
+            --out json=/results/spike-test-results.json \
+            --summary-export=/results/spike-test-summary.json \
+            /scripts/spike-test.js
+        continue-on-error: true
+
+      - name: Collect orchestrator logs
+        if: always()
+        run: |
+          docker logs perf-orchestrator > perf-tests/results/orchestrator-logs-spike.txt 2>&1 || true
+
+      - name: Generate HTML report
+        if: always()
+        run: |
+          node perf-tests/scripts/generate-report.js \
+            --input perf-tests/results/spike-test-results.json \
+            --type spike || echo "Report generation skipped"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-test-results
+          path: |
+            perf-tests/results/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.perf.yml down -v

@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'orchestrator-performance-test'
+
+scrape_configs:
+  # Scrape orchestrator metrics
+  - job_name: 'orchestrator'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['orchestrator:8080']
+        labels:
+          service: 'orchestrator'
+          environment: 'performance-test'
+
+  # Scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
