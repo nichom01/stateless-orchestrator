@@ -33,7 +33,29 @@ function parseArgs() {
   return config;
 }
 
-// Parse k6 JSON results
+// Parse k6 summary JSON format (from --summary-export)
+function parseSummaryJSON(jsonPath) {
+  try {
+    const content = fs.readFileSync(jsonPath, 'utf8');
+    const data = JSON.parse(content);
+    
+    // Extract pre-calculated metrics from summary format
+    return {
+      totalEvents: data.metrics?.events_submitted?.count || 0,
+      errorRate: data.metrics?.http_req_failed?.value || 0,
+      httpReqDuration: data.metrics?.http_req_duration || {},
+      bulkLatency: data.metrics?.bulk_request_latency_ms || {},
+      iterations: data.metrics?.iterations?.count || 0,
+      checks: data.metrics?.checks || {},
+      isSummaryFormat: true
+    };
+  } catch (error) {
+    console.error(`Error parsing summary JSON: ${error.message}`);
+    return { isSummaryFormat: false };
+  }
+}
+
+// Parse k6 JSON results (NDJSON format from --out json)
 function parseK6Results(jsonPath) {
   try {
     const content = fs.readFileSync(jsonPath, 'utf8');
@@ -73,10 +95,53 @@ function parseK6Results(jsonPath) {
       }
     });
     
-    return { metrics, dataPoints };
+    return { metrics, dataPoints, isSummaryFormat: false };
   } catch (error) {
     console.error(`Error parsing k6 results: ${error.message}`);
-    return { metrics: {}, dataPoints: [] };
+    return { metrics: {}, dataPoints: [], isSummaryFormat: false };
+  }
+}
+
+// Detect file format and parse accordingly
+function parseK6File(jsonPath) {
+  try {
+    const content = fs.readFileSync(jsonPath, 'utf8').trim();
+    
+    // Check if it's summary JSON format (single JSON object with metrics property)
+    if (content.startsWith('{') && content.includes('"metrics"')) {
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed.metrics && typeof parsed.metrics === 'object') {
+          console.log('Detected summary JSON format');
+          return parseSummaryJSON(jsonPath);
+        }
+      } catch (e) {
+        // Not valid summary JSON, try NDJSON
+      }
+    }
+    
+    // Check if it's NDJSON format (multiple lines with type field)
+    if (content.includes('"type":"Metric"') || content.includes('"type":"Summary"')) {
+      console.log('Detected NDJSON format');
+      return parseK6Results(jsonPath);
+    }
+    
+    // Try parsing as summary JSON first (most common)
+    const summaryResult = parseSummaryJSON(jsonPath);
+    if (summaryResult.isSummaryFormat) {
+      return summaryResult;
+    }
+    
+    // Fall back to NDJSON
+    return parseK6Results(jsonPath);
+  } catch (error) {
+    console.error(`Error detecting file format: ${error.message}`);
+    // Try both parsers
+    const summaryResult = parseSummaryJSON(jsonPath);
+    if (summaryResult.isSummaryFormat) {
+      return summaryResult;
+    }
+    return parseK6Results(jsonPath);
   }
 }
 
@@ -101,21 +166,55 @@ function calculateStats(values) {
 
 // Generate HTML report
 function generateHTMLReport(data, testType) {
-  const { metrics, dataPoints } = data;
+  let totalEvents, errorRate, durationStats, latencyStats;
   
-  // Extract key metrics
-  const httpReqDuration = metrics['http_req_duration']?.values || [];
-  const httpReqFailed = metrics['http_req_failed']?.values || [];
-  const eventsSubmitted = metrics['events_submitted']?.values || [];
-  const bulkLatency = metrics['bulk_request_latency_ms']?.values || [];
-  
-  const durationStats = calculateStats(httpReqDuration.map(v => v.value));
-  const latencyStats = calculateStats(bulkLatency.map(v => v.value));
-  
-  const totalEvents = eventsSubmitted.reduce((sum, v) => sum + (v.value || 0), 0);
-  const errorRate = httpReqFailed.length > 0 
-    ? httpReqFailed.reduce((sum, v) => sum + (v.value || 0), 0) / httpReqFailed.length 
-    : 0;
+  // Handle summary JSON format (pre-calculated stats)
+  if (data.isSummaryFormat) {
+    totalEvents = data.totalEvents || 0;
+    errorRate = data.errorRate || 0;
+    
+    // Extract pre-calculated statistics from summary format
+    const httpDuration = data.httpReqDuration || {};
+    const bulkLat = data.bulkLatency || {};
+    
+    durationStats = {
+      min: httpDuration.min,
+      max: httpDuration.max,
+      avg: httpDuration.avg,
+      p50: httpDuration.med,
+      p90: httpDuration['p(90)'],
+      p95: httpDuration['p(95)'],
+      p99: httpDuration['p(99)'],
+      count: httpDuration.count
+    };
+    
+    latencyStats = {
+      min: bulkLat.min,
+      max: bulkLat.max,
+      avg: bulkLat.avg,
+      p50: bulkLat.med,
+      p90: bulkLat['p(90)'],
+      p95: bulkLat['p(95)'],
+      p99: bulkLat['p(99)'],
+      count: bulkLat.count
+    };
+  } else {
+    // Handle NDJSON format (calculate from raw values)
+    const { metrics } = data;
+    
+    const httpReqDuration = metrics['http_req_duration']?.values || [];
+    const httpReqFailed = metrics['http_req_failed']?.values || [];
+    const eventsSubmitted = metrics['events_submitted']?.values || [];
+    const bulkLatency = metrics['bulk_request_latency_ms']?.values || [];
+    
+    durationStats = calculateStats(httpReqDuration.map(v => v.value));
+    latencyStats = calculateStats(bulkLatency.map(v => v.value));
+    
+    totalEvents = eventsSubmitted.reduce((sum, v) => sum + (v.value || 0), 0);
+    errorRate = httpReqFailed.length > 0 
+      ? httpReqFailed.reduce((sum, v) => sum + (v.value || 0), 0) / httpReqFailed.length 
+      : 0;
+  }
   
   return `<!DOCTYPE html>
 <html lang="en">
@@ -334,7 +433,7 @@ function main() {
   const outputPath = config.output || config.input.replace('.json', '.html');
   
   console.log(`Generating report from ${config.input}...`);
-  const data = parseK6Results(config.input);
+  const data = parseK6File(config.input);
   const html = generateHTMLReport(data, config.type);
   
   // Ensure output directory exists
@@ -351,4 +450,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { parseK6Results, generateHTMLReport };
+module.exports = { parseK6Results, parseSummaryJSON, parseK6File, generateHTMLReport };

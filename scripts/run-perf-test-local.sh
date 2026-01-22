@@ -83,9 +83,18 @@ docker-compose -f "$COMPOSE_FILE" run --rm \
 }
 
 # Generate HTML report
-if [ -f "$RESULTS_FILE" ]; then
+if [ -f "$SUMMARY_FILE" ]; then
     echo ""
     echo -e "${CYAN}Generating HTML report...${NC}"
+    node perf-tests/scripts/generate-report.js \
+        --input "$SUMMARY_FILE" \
+        --output "${RESULTS_DIR}/${TEST_TYPE}-test-report.html" \
+        --type "$TEST_TYPE" || {
+        echo -e "${YELLOW}⚠ Report generation failed${NC}"
+    }
+elif [ -f "$RESULTS_FILE" ]; then
+    echo ""
+    echo -e "${CYAN}Generating HTML report from NDJSON results...${NC}"
     node perf-tests/scripts/generate-report.js \
         --input "$RESULTS_FILE" \
         --output "${RESULTS_DIR}/${TEST_TYPE}-test-report.html" \
