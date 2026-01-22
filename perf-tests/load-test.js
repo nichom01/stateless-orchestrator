@@ -16,16 +16,16 @@ import {
 
 export const options = {
   stages: [
-    // Gradual ramp-up: 0 → 100 VUs over 1 minute
+    // Gradual ramp-up: 0 → 10 VUs over 10 seconds (for CI testing)
+    { duration: '10s', target: 10 },
+    // Increase to 50 VUs over 30 seconds
+    { duration: '30s', target: 50 },
+    // Increase to 100 VUs over 1 minute
     { duration: '1m', target: 100 },
-    // Increase to 500 VUs over 2 minutes
-    { duration: '2m', target: 500 },
-    // Increase to 1000 VUs over 2 minutes
-    { duration: '2m', target: 1000 },
-    // Steady state: 1000 VUs for 10 minutes
-    { duration: '10m', target: 1000 },
-    // Ramp-down: 1000 → 0 over 2 minutes
-    { duration: '2m', target: 0 },
+    // Steady state: 100 VUs for 2 minutes (reduced for CI)
+    { duration: '2m', target: 100 },
+    // Ramp-down: 100 → 0 over 30 seconds
+    { duration: '30s', target: 0 },
   ],
   
   thresholds: {
