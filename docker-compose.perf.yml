@@ -101,6 +101,7 @@ services:
   k6:
     image: grafana/k6:latest
     container_name: perf-k6
+    user: root
     environment:
       - ORCHESTRATOR_URL=http://orchestrator:8080
       - EVENTS_PER_REQUEST=100
