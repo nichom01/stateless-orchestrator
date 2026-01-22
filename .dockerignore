@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+README.md
+QUICKSTART.md
+SETUP.md
+MIGRATION_GUIDE.md
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven build artifacts (will be rebuilt in container)
+target/
+!target/.maven-wrapper
+
+# Logs
+logs/
+*.log
+spring.log
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Scripts (not needed in container)
+scripts/
+
+# Examples (not needed in container)
+examples/
+
+# Test files
+src/test/
+
+# GitHub Actions
+.github/
+
+# CI/CD
+*.plan.md

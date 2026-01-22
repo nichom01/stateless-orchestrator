@@ -898,23 +898,55 @@ routes:
 
 ### Docker
 
-Create `Dockerfile`:
+The project includes an optimized multi-stage `Dockerfile` that builds a production-ready container image.
 
-```dockerfile
-FROM eclipse-temurin:17-jre
-COPY target/stateless-orchestrator-1.0.0.jar app.jar
-ENTRYPOINT ["java", "-jar", "/app.jar"]
+#### Using GitHub Container Registry (Recommended)
+
+Images are automatically built and pushed to GitHub Container Registry (GHCR) on every push to the `main` branch via GitHub Actions.
+
+**Pull and run the latest image:**
+
+```bash
+# Authenticate with GHCR (if image is private)
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Pull the image
+docker pull ghcr.io/<owner>/stateless-orchestrator:latest
+
+# Run with LocalStack (local development)
+docker-compose up -d localstack
+docker run -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=dev \
+  -e LOCALSTACK_ENDPOINT=http://host.docker.internal:4566 \
+  --network host \
+  ghcr.io/<owner>/stateless-orchestrator:latest
+
+# Run with AWS SQS (production)
+docker run -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY_ID=your-key \
+  -e AWS_SECRET_ACCESS_KEY=your-secret \
+  -e SQS_QUEUE_URL_PREFIX=https://sqs.us-east-1.amazonaws.com/123456789012/ \
+  ghcr.io/<owner>/stateless-orchestrator:latest
 ```
 
-Build and run:
+**Available image tags:**
+- `latest` - Latest build from main branch
+- `sha-<commit-sha>` - Specific commit (e.g., `sha-abc1234`)
+- `v1.0.0`, `v1.0`, `v1` - Semantic version tags (when git tags are pushed)
+
+#### Building Locally
 
 **Local Development (LocalStack SQS):**
 ```bash
 # Start LocalStack first
 docker-compose up -d
 
-# Build and run orchestrator
+# Build the image
 docker build -t stateless-orchestrator .
+
+# Run the orchestrator
 docker run -p 8080:8080 \
   -e SPRING_PROFILES_ACTIVE=dev \
   -e LOCALSTACK_ENDPOINT=http://host.docker.internal:4566 \
@@ -924,7 +956,10 @@ docker run -p 8080:8080 \
 
 **Production (AWS SQS):**
 ```bash
+# Build the image
 docker build -t stateless-orchestrator .
+
+# Run with AWS credentials
 docker run -p 8080:8080 \
   -e SPRING_PROFILES_ACTIVE=prod \
   -e AWS_REGION=us-east-1 \
@@ -934,13 +969,28 @@ docker run -p 8080:8080 \
   stateless-orchestrator
 ```
 
-Or use IAM role (recommended for ECS/EC2):
+**Using IAM role (recommended for ECS/EC2):**
 ```bash
 docker run -p 8080:8080 \
   -e SPRING_PROFILES_ACTIVE=prod \
   -e AWS_REGION=us-east-1 \
   stateless-orchestrator
 ```
+
+#### CI/CD with GitHub Actions
+
+The repository includes a GitHub Actions workflow (`.github/workflows/docker-build-push.yml`) that:
+
+- Automatically builds multi-architecture images (linux/amd64, linux/arm64) on push to `main`
+- Pushes images to GitHub Container Registry
+- Creates multiple tags (SHA, latest, semantic versions)
+- Uses layer caching for faster builds
+
+**Workflow triggers:**
+- Push to `main` branch
+- Manual workflow dispatch
+
+**View images:** Navigate to `https://github.com/<owner>/<repo>/pkgs/container/stateless-orchestrator` in your repository.
 
 ### Kubernetes
 
@@ -961,7 +1011,7 @@ spec:
     spec:
       containers:
       - name: orchestrator
-        image: stateless-orchestrator:latest
+        image: ghcr.io/<owner>/stateless-orchestrator:latest
         ports:
         - containerPort: 8080
         env:

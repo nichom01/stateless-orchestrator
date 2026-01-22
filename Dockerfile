@@ -1,21 +1,19 @@
 # Stage 1: Builder
-FROM eclipse-temurin:25-jdk AS builder
+FROM maven:3.9-eclipse-temurin-25 AS builder
 
 WORKDIR /app
 
-# Copy Maven wrapper and pom.xml for dependency resolution
+# Copy pom.xml for dependency resolution
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
 
 # Download dependencies (this layer will be cached if pom.xml doesn't change)
-RUN chmod +x mvnw && ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copy source code
 COPY src ./src
 
 # Build the application
-RUN ./mvnw clean package -DskipTests -B
+RUN mvn clean package -DskipTests -B
 
 # Extract the JAR file
 RUN find target -name "*.jar" -type f -exec cp {} app.jar \;
@@ -24,6 +22,11 @@ RUN find target -name "*.jar" -type f -exec cp {} app.jar \;
 FROM eclipse-temurin:25-jre
 
 WORKDIR /app
+
+# Install curl for healthcheck
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user for security
 RUN groupadd -r spring && useradd -r -g spring spring
