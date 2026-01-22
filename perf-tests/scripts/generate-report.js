@@ -177,6 +177,11 @@ function generateHTMLReport(data, testType) {
     const httpDuration = data.httpReqDuration || {};
     const bulkLat = data.bulkLatency || {};
     
+    // Validate that we have data
+    if (totalEvents === 0 && (!httpDuration.count && !bulkLat.count)) {
+      console.warn('Warning: Summary JSON format detected but no metrics found. Report may be empty.');
+    }
+    
     durationStats = {
       min: httpDuration.min,
       max: httpDuration.max,
