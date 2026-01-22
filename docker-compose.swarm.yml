@@ -1,0 +1,195 @@
+version: '3.8'
+
+services:
+  # LocalStack for SQS queue backend
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - DEBUG=0
+      - DEFAULT_REGION=us-east-1
+      - PERSISTENCE=1
+    volumes:
+      - "./scripts/init-localstack.sh:/etc/localstack/init/ready.d/init-localstack.sh"
+      - "perf_localstack_data:/var/lib/localstack"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      placement:
+        constraints:
+          - node.role == manager  # Bind mount requires manager node
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        start_period: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - perf-network
+
+  # Orchestrator application - horizontally scaled
+  # NOTE: Docker Swarm doesn't support 'build' in compose files.
+  # Build the image first: docker build -t stateless-orchestrator:latest .
+  # Or use a registry: docker tag stateless-orchestrator:latest <registry>/stateless-orchestrator:latest && docker push <registry>/stateless-orchestrator:latest
+  orchestrator:
+    image: stateless-orchestrator:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_APPLICATION_NAME=stateless-orchestrator
+      - ORCHESTRATOR_MESSAGING_BROKER=sqs
+      - ORCHESTRATOR_MESSAGING_SQS_REGION=us-east-1
+      - ORCHESTRATOR_MESSAGING_SQS_ENDPOINT=http://localstack:4566
+      - ORCHESTRATOR_MESSAGING_SQS_QUEUE_URL_PREFIX=http://localhost:4566/000000000000/
+      - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Xmx1536m
+    deploy:
+      replicas: 3  # Horizontal scaling - 3 orchestrator instances
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+        start_period: 40s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - perf-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - "./perf-tests/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "perf_prometheus_data:/prometheus"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    networks:
+      - perf-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    volumes:
+      - "perf_grafana_data:/var/lib/grafana"
+      - "./perf-tests/grafana/dashboards:/etc/grafana/provisioning/dashboards"
+      - "./perf-tests/grafana/datasources:/etc/grafana/provisioning/datasources"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    depends_on:
+      - prometheus
+    networks:
+      - perf-network
+
+  # k6 load generator
+  # NOTE: Bind mounts in k6 service only work on single-node Swarm or when run on manager node.
+  # For multi-node Swarm, use the deploy-swarm-stack.sh script's run-k6 command or
+  # create k6 service manually with proper volume mounts.
+  # This service is set to 0 replicas - use helper script to run tests.
+  k6:
+    image: grafana/k6:latest
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8080
+      - EVENTS_PER_REQUEST=100
+      - TEST_DATA_PATH=/scripts/test-data
+    volumes:
+      - "./perf-tests:/scripts"
+      - "./examples:/examples"
+      - "./perf-tests/results:/results"
+    deploy:
+      replicas: 0  # Set to 0 - run manually as needed via helper script
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      placement:
+        constraints:
+          - node.role == manager  # Bind mounts require manager node
+      restart_policy:
+        condition: none  # Don't restart - one-off tasks
+    networks:
+      - perf-network
+
+volumes:
+  perf_localstack_data:
+    driver: local
+  perf_prometheus_data:
+    driver: local
+  perf_grafana_data:
+    driver: local
+
+networks:
+  perf-network:
+    driver: overlay
+    attachable: true

@@ -991,6 +991,36 @@ The repository includes a GitHub Actions workflow (`.github/workflows/docker-bui
 
 **View images:** Navigate to `https://github.com/<owner>/<repo>/pkgs/container/stateless-orchestrator` in your repository.
 
+### Docker Swarm (Performance Testing)
+
+For distributed, scalable performance testing, use Docker Swarm:
+
+```bash
+# Deploy the Swarm stack
+./scripts/deploy-swarm-stack.sh deploy
+
+# Scale orchestrator to 5 replicas
+./scripts/deploy-swarm-stack.sh scale --replicas=5
+
+# Run performance tests
+./scripts/deploy-swarm-stack.sh run-k6 load
+
+# View service status
+./scripts/deploy-swarm-stack.sh status
+
+# Remove stack
+./scripts/deploy-swarm-stack.sh remove
+```
+
+**Features:**
+- Horizontal scaling across multiple nodes
+- Built-in load balancing
+- High availability with automatic failover
+- Resource limits and health checks
+- Rolling updates support
+
+**See [Docker Swarm Guide](./docs/DOCKER_SWARM.md) for detailed documentation.**
+
 ### Kubernetes
 
 ```yaml
