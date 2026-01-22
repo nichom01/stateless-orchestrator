@@ -6,6 +6,10 @@
 
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 TEST_TYPE="${1:-load}"
 COMPOSE_FILE="docker-compose.perf.yml"
 RESULTS_DIR="perf-tests/results"
@@ -86,6 +90,8 @@ docker-compose -f "$COMPOSE_FILE" run --rm \
 if [ -f "$SUMMARY_FILE" ]; then
     echo ""
     echo -e "${CYAN}Generating HTML report...${NC}"
+    # Use absolute path to ensure we're using the script from the project root
+    cd "$PROJECT_ROOT"
     node perf-tests/scripts/generate-report.js \
         --input "$SUMMARY_FILE" \
         --output "${RESULTS_DIR}/${TEST_TYPE}-test-report.html" \
@@ -95,6 +101,8 @@ if [ -f "$SUMMARY_FILE" ]; then
 elif [ -f "$RESULTS_FILE" ]; then
     echo ""
     echo -e "${CYAN}Generating HTML report from NDJSON results...${NC}"
+    # Use absolute path to ensure we're using the script from the project root
+    cd "$PROJECT_ROOT"
     node perf-tests/scripts/generate-report.js \
         --input "$RESULTS_FILE" \
         --output "${RESULTS_DIR}/${TEST_TYPE}-test-report.html" \
