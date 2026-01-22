@@ -13,6 +13,14 @@ on:
           - stress
           - spike
           - all
+      deployment_mode:
+        description: 'Deployment mode'
+        required: false
+        default: 'compose'
+        type: choice
+        options:
+          - compose
+          - swarm
       duration:
         description: 'Custom test duration (e.g., 10m, 30m)'
         required: false
@@ -32,6 +40,7 @@ on:
 env:
   ORCHESTRATOR_URL: http://orchestrator:8080
   EVENTS_PER_REQUEST: 100
+  DEPLOYMENT_MODE: ${{ github.event.inputs.deployment_mode || 'compose' }}
 
 jobs:
   load-test:
@@ -88,7 +97,8 @@ jobs:
             node perf-tests/generate-test-data.js 10000 perf-tests/test-data/test-data-10k.jsonl
           fi
 
-      - name: Verify orchestrator connectivity from k6
+      - name: Verify orchestrator connectivity from k6 (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           echo "Testing connectivity from k6 container..."
           docker compose -f docker-compose.perf.yml run --rm \
@@ -96,10 +106,18 @@ jobs:
             --entrypoint /bin/sh \
             k6 -c "curl -f http://orchestrator:8080/actuator/health || echo 'Health check failed'"
 
-      - name: Run load test
+      - name: Verify orchestrator connectivity from k6 (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          echo "Testing connectivity to orchestrator service..."
+          docker run --rm --network perf-test_perf-network curlimages/curl:latest \
+            curl -f http://orchestrator:8080/actuator/health || echo 'Health check failed'
+
+      - name: Run load test (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           mkdir -p perf-tests/results
-          echo "Running k6 load test..."
+          echo "Running k6 load test with Docker Compose..."
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
           # Use docker to set permissions on the results directory
@@ -123,10 +141,40 @@ jobs:
             }
         continue-on-error: true
 
-      - name: Collect orchestrator logs
-        if: always()
+      - name: Run load test (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          mkdir -p perf-tests/results
+          echo "Running k6 load test with Docker Swarm..."
+          echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
+          echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
+          docker service create \
+            --name perf-test_k6_load_$$(date +%s) \
+            --network perf-test_perf-network \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            --restart-condition none \
+            grafana/k6:latest \
+            run --out json=/results/load-test-results.json --summary-export=/results/load-test-summary.json /scripts/load-test.js || {
+              echo "k6 test failed"
+              exit 1
+            }
+          # Wait for service to complete and get logs
+          sleep 5
+          docker service ls | grep k6 || true
+        continue-on-error: true
+
+      - name: Collect orchestrator logs (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker logs perf-orchestrator > perf-tests/results/orchestrator-logs.txt 2>&1 || true
+
+      - name: Collect orchestrator logs (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker service logs perf-test_orchestrator --tail 1000 > perf-tests/results/orchestrator-logs.txt 2>&1 || true
 
       - name: Collect queue statistics
         if: always()
@@ -150,10 +198,17 @@ jobs:
             perf-tests/results/
           retention-days: 30
 
-      - name: Cleanup
-        if: always()
+      - name: Cleanup (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml down -v || true
+
+      - name: Cleanup (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack rm perf-test || true
+          docker service rm $(docker service ls -q --filter "name=perf-test") 2>/dev/null || true
+          sleep 5
 
   stress-test:
     name: Stress Test
@@ -176,19 +231,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Start performance test environment
+      - name: Initialize Docker Swarm (if using swarm mode)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker swarm init || echo "Swarm already initialized"
+
+      - name: Build orchestrator image
+        run: |
+          docker build -t stateless-orchestrator:latest .
+
+      - name: Start performance test environment (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
-
-      - name: Build orchestrator image
-        run: |
           docker compose -f docker-compose.perf.yml build orchestrator
-
-      - name: Start orchestrator
-        run: |
           docker compose -f docker-compose.perf.yml up -d orchestrator
+
+      - name: Start performance test environment (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack deploy -c docker-compose.swarm.yml perf-test
+          echo "Waiting for services to start..."
+          sleep 15
+
+      - name: Wait for orchestrator to be healthy (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
+        run: |
           echo "Waiting for orchestrator to be healthy..."
           for i in {1..60}; do
             if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
@@ -203,6 +273,31 @@ jobs:
             sleep 2
           done
 
+      - name: Wait for orchestrator to be healthy (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          echo "Waiting for orchestrator service to be healthy..."
+          for i in {1..60}; do
+            if docker service ps perf-test_orchestrator --format "{{.CurrentState}}" | grep -q "Running"; then
+              TASK_ID=$(docker service ps perf-test_orchestrator --format "{{.ID}}" --filter "desired-state=running" | head -n1)
+              if [ -n "$TASK_ID" ]; then
+                CONTAINER_ID=$(docker inspect --format '{{.Status.ContainerStatus.ContainerID}}' $TASK_ID 2>/dev/null || echo "")
+                if [ -n "$CONTAINER_ID" ]; then
+                  if docker exec $CONTAINER_ID curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                    echo "Orchestrator is healthy"
+                    break
+                  fi
+                fi
+              fi
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Orchestrator failed to become healthy"
+              docker service logs perf-test_orchestrator --tail 50
+              exit 1
+            fi
+            sleep 2
+          done
+
       - name: Generate test data if needed
         run: |
           mkdir -p perf-tests/test-data
@@ -210,10 +305,10 @@ jobs:
             node perf-tests/generate-test-data.js 50000 perf-tests/test-data/test-data-50k.jsonl
           fi
 
-      - name: Run stress test
+      - name: Run stress test (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           mkdir -p perf-tests/results
-          # Use docker to set permissions on the results directory
           docker compose -f docker-compose.perf.yml run --rm \
             --user root \
             --entrypoint /bin/sh \
@@ -230,10 +325,32 @@ jobs:
             /scripts/stress-test.js
         continue-on-error: true
 
-      - name: Collect orchestrator logs
-        if: always()
+      - name: Run stress test (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          mkdir -p perf-tests/results
+          docker service create \
+            --name perf-test_k6_stress_$$(date +%s) \
+            --network perf-test_perf-network \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            --restart-condition none \
+            grafana/k6:latest \
+            run --out json=/results/stress-test-results.json --summary-export=/results/stress-test-summary.json /scripts/stress-test.js || true
+          sleep 5
+        continue-on-error: true
+
+      - name: Collect orchestrator logs (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker logs perf-orchestrator > perf-tests/results/orchestrator-logs-stress.txt 2>&1 || true
+
+      - name: Collect orchestrator logs (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker service logs perf-test_orchestrator --tail 1000 > perf-tests/results/orchestrator-logs-stress.txt 2>&1 || true
 
       - name: Collect queue statistics
         if: always()
@@ -257,10 +374,17 @@ jobs:
             perf-tests/results/
           retention-days: 30
 
-      - name: Cleanup
-        if: always()
+      - name: Cleanup (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml down -v || true
+
+      - name: Cleanup (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack rm perf-test || true
+          docker service rm $(docker service ls -q --filter "name=perf-test") 2>/dev/null || true
+          sleep 5
 
   spike-test:
     name: Spike Test
@@ -280,19 +404,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Start performance test environment
+      - name: Initialize Docker Swarm (if using swarm mode)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker swarm init || echo "Swarm already initialized"
+
+      - name: Build orchestrator image
+        run: |
+          docker build -t stateless-orchestrator:latest .
+
+      - name: Start performance test environment (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
-
-      - name: Build orchestrator image
-        run: |
           docker compose -f docker-compose.perf.yml build orchestrator
-
-      - name: Start orchestrator
-        run: |
           docker compose -f docker-compose.perf.yml up -d orchestrator
+
+      - name: Start performance test environment (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack deploy -c docker-compose.swarm.yml perf-test
+          echo "Waiting for services to start..."
+          sleep 15
+
+      - name: Wait for orchestrator to be healthy (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
+        run: |
           echo "Waiting for orchestrator to be healthy..."
           for i in {1..60}; do
             if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
@@ -307,10 +446,35 @@ jobs:
             sleep 2
           done
 
-      - name: Run spike test
+      - name: Wait for orchestrator to be healthy (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          echo "Waiting for orchestrator service to be healthy..."
+          for i in {1..60}; do
+            if docker service ps perf-test_orchestrator --format "{{.CurrentState}}" | grep -q "Running"; then
+              TASK_ID=$(docker service ps perf-test_orchestrator --format "{{.ID}}" --filter "desired-state=running" | head -n1)
+              if [ -n "$TASK_ID" ]; then
+                CONTAINER_ID=$(docker inspect --format '{{.Status.ContainerStatus.ContainerID}}' $TASK_ID 2>/dev/null || echo "")
+                if [ -n "$CONTAINER_ID" ]; then
+                  if docker exec $CONTAINER_ID curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                    echo "Orchestrator is healthy"
+                    break
+                  fi
+                fi
+              fi
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Orchestrator failed to become healthy"
+              docker service logs perf-test_orchestrator --tail 50
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Run spike test (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           mkdir -p perf-tests/results
-          # Use docker to set permissions on the results directory
           docker compose -f docker-compose.perf.yml run --rm \
             --user root \
             --entrypoint /bin/sh \
@@ -327,10 +491,32 @@ jobs:
             /scripts/spike-test.js
         continue-on-error: true
 
-      - name: Collect orchestrator logs
-        if: always()
+      - name: Run spike test (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          mkdir -p perf-tests/results
+          docker service create \
+            --name perf-test_k6_spike_$$(date +%s) \
+            --network perf-test_perf-network \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
+            --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
+            -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
+            -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
+            --restart-condition none \
+            grafana/k6:latest \
+            run --out json=/results/spike-test-results.json --summary-export=/results/spike-test-summary.json /scripts/spike-test.js || true
+          sleep 5
+        continue-on-error: true
+
+      - name: Collect orchestrator logs (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker logs perf-orchestrator > perf-tests/results/orchestrator-logs-spike.txt 2>&1 || true
+
+      - name: Collect orchestrator logs (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker service logs perf-test_orchestrator --tail 1000 > perf-tests/results/orchestrator-logs-spike.txt 2>&1 || true
 
       - name: Generate HTML report
         if: always()
@@ -348,7 +534,14 @@ jobs:
             perf-tests/results/
           retention-days: 30
 
-      - name: Cleanup
-        if: always()
+      - name: Cleanup (Compose)
+        if: always() && env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml down -v || true
+
+      - name: Cleanup (Swarm)
+        if: always() && env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack rm perf-test || true
+          docker service rm $(docker service ls -q --filter "name=perf-test") 2>/dev/null || true
+          sleep 5
