@@ -56,17 +56,17 @@ jobs:
 
       - name: Start performance test environment
         run: |
-          docker compose -f docker compose.perf.yml up -d localstack prometheus
+          docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
 
       - name: Build orchestrator image
         run: |
-          docker compose -f docker compose.perf.yml build orchestrator
+          docker compose -f docker-compose.perf.yml build orchestrator
 
       - name: Start orchestrator
         run: |
-          docker compose -f docker compose.perf.yml up -d orchestrator
+          docker compose -f docker-compose.perf.yml up -d orchestrator
           echo "Waiting for orchestrator to be healthy..."
           for i in {1..60}; do
             if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
@@ -91,7 +91,7 @@ jobs:
       - name: Run load test
         run: |
           mkdir -p perf-tests/results
-          docker compose -f docker compose.perf.yml run --rm \
+          docker compose -f docker-compose.perf.yml run --rm \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
@@ -131,7 +131,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f docker compose.perf.yml down -v
+          docker compose -f docker-compose.perf.yml down -v || true
 
   stress-test:
     name: Stress Test
@@ -156,17 +156,17 @@ jobs:
 
       - name: Start performance test environment
         run: |
-          docker compose -f docker compose.perf.yml up -d localstack prometheus
+          docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
 
       - name: Build orchestrator image
         run: |
-          docker compose -f docker compose.perf.yml build orchestrator
+          docker compose -f docker-compose.perf.yml build orchestrator
 
       - name: Start orchestrator
         run: |
-          docker compose -f docker compose.perf.yml up -d orchestrator
+          docker compose -f docker-compose.perf.yml up -d orchestrator
           echo "Waiting for orchestrator to be healthy..."
           for i in {1..60}; do
             if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
@@ -191,7 +191,7 @@ jobs:
       - name: Run stress test
         run: |
           mkdir -p perf-tests/results
-          docker compose -f docker compose.perf.yml run --rm \
+          docker compose -f docker-compose.perf.yml run --rm \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
@@ -231,7 +231,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f docker compose.perf.yml down -v
+          docker compose -f docker-compose.perf.yml down -v || true
 
   spike-test:
     name: Spike Test
@@ -253,17 +253,17 @@ jobs:
 
       - name: Start performance test environment
         run: |
-          docker compose -f docker compose.perf.yml up -d localstack prometheus
+          docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
 
       - name: Build orchestrator image
         run: |
-          docker compose -f docker compose.perf.yml build orchestrator
+          docker compose -f docker-compose.perf.yml build orchestrator
 
       - name: Start orchestrator
         run: |
-          docker compose -f docker compose.perf.yml up -d orchestrator
+          docker compose -f docker-compose.perf.yml up -d orchestrator
           echo "Waiting for orchestrator to be healthy..."
           for i in {1..60}; do
             if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
@@ -281,7 +281,7 @@ jobs:
       - name: Run spike test
         run: |
           mkdir -p perf-tests/results
-          docker compose -f docker compose.perf.yml run --rm \
+          docker compose -f docker-compose.perf.yml run --rm \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             -v ${{ github.workspace }}/perf-tests/results:/results \
@@ -315,4 +315,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f docker compose.perf.yml down -v
+          docker compose -f docker-compose.perf.yml down -v || true
