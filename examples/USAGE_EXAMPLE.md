@@ -525,9 +525,10 @@ SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
 
 ### Queues not being created
 
-Check the orchestration configuration file:
+Check the orchestration configuration files:
 ```bash
-cat src/main/resources/orchestrations/orchestration-config.yml
+cat src/main/resources/orchestrations/order-processing.yml
+cat src/main/resources/orchestrations/user-registration.yml
 ```
 
 Ensure all queue names are valid and the application has proper AWS/LocalStack permissions.

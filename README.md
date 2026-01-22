@@ -293,7 +293,7 @@ export SQS_QUEUE_URL_PREFIX=https://sqs.us-east-1.amazonaws.com/123456789012/
 
 5. **Automatic Queue Creation:**
    - Queues are automatically created on application startup via `QueueInitializer`
-   - The initializer reads queue names from `orchestration-config.yml`
+   - The initializer reads queue names from orchestration configs in `orchestrations/` directory
    - Idempotent - safe to run multiple times
 
 ### Architecture
@@ -537,7 +537,7 @@ This starts LocalStack with SQS service. Queues will be automatically created wh
 
 3. **Customize orchestration configuration**
 
-Edit `src/main/resources/orchestration-config.yml` with your routing rules.
+Edit orchestration files in `src/main/resources/orchestrations/` directory (e.g., `order-processing.yml`, `user-registration.yml`) with your routing rules.
 
 4. **Build the project**
 
@@ -774,11 +774,10 @@ Organize orchestration files in a dedicated directory:
 
 ```
 src/main/resources/
-  ├── orchestrations/
-  │   ├── order-processing.yml
-  │   ├── user-registration.yml
-  │   └── shipping.yml
-  └── orchestration-config.yml (legacy, optional)
+  └── orchestrations/
+      ├── order-processing.yml
+      ├── user-registration.yml
+      └── shipping.yml
 ```
 
 ### Event Payload

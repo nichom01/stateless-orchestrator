@@ -43,7 +43,7 @@ mvn spring-boot:run
 
 The application will automatically:
 - Connect to LocalStack SQS
-- Create all required queues from `orchestration-config.yml`
+- Create all required queues from orchestration configs in `orchestrations/` directory
 - Start listening for events
 
 ### 4. Test It
@@ -139,7 +139,7 @@ See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for migration from single to multip
 
 ## What's Next?
 
-1. **Customize routing** - Edit `src/main/resources/orchestration-config.yml` or create multiple orchestration files
+1. **Customize routing** - Edit orchestration files in `src/main/resources/orchestrations/` directory
 2. **Add your services** - Create services that consume from the target queues
 3. **Hot reload** - Change config and reload without restart:
    ```bash

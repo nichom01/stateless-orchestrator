@@ -26,17 +26,13 @@ spring:
 orchestrator:
   # Configuration file location
   config:
-    # NEW: Multi-file orchestration support
-    # Uncomment to use multiple orchestration files:
-    # files:
-    #   - name: "order-processing"
-    #     path: "classpath:orchestrations/order-processing.yml"
-    #   - name: "user-registration"
-    #     path: "classpath:orchestrations/user-registration.yml"
-    # defaultOrchestration: "order-processing"
-    
-    # LEGACY: Single file mode (default, for backward compatibility)
-    file: classpath:orchestration-config.yml
+    # Multi-file orchestration support
+    files:
+      - name: "order-processing"
+        path: "classpath:orchestrations/order-processing.yml"
+      - name: "user-registration"
+        path: "classpath:orchestrations/user-registration.yml"
+    defaultOrchestration: "order-processing"
   
   # Input queue name
   queue:
