@@ -38,7 +38,7 @@ services:
       - ORCHESTRATOR_MESSAGING_SQS_REGION=us-east-1
       - ORCHESTRATOR_MESSAGING_SQS_ENDPOINT=http://localstack:4566
       - ORCHESTRATOR_MESSAGING_SQS_QUEUE_URL_PREFIX=http://localhost:4566/000000000000/
-      - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Xmx3072m
+      - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Xmx1536m
     depends_on:
       localstack:
         condition: service_healthy
@@ -51,11 +51,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 4G
-        reservations:
           cpus: '2'
           memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
     networks:
       - perf-network
 
