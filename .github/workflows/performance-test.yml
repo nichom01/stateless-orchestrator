@@ -88,6 +88,14 @@ jobs:
             node perf-tests/generate-test-data.js 10000 perf-tests/test-data/test-data-10k.jsonl
           fi
 
+      - name: Verify orchestrator connectivity from k6
+        run: |
+          echo "Testing connectivity from k6 container..."
+          docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
+            --entrypoint /bin/sh \
+            k6 -c "curl -f http://orchestrator:8080/actuator/health || echo 'Health check failed'"
+
       - name: Run load test
         run: |
           mkdir -p perf-tests/results
