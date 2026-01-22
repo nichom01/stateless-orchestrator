@@ -91,6 +91,9 @@ jobs:
       - name: Run load test
         run: |
           mkdir -p perf-tests/results
+          echo "Running k6 load test..."
+          echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
+          echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
           docker compose -f docker-compose.perf.yml run --rm \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
@@ -98,7 +101,11 @@ jobs:
             k6 run \
             --out json=/results/load-test-results.json \
             --summary-export=/results/load-test-summary.json \
-            /scripts/load-test.js
+            /scripts/load-test.js 2>&1 || {
+              echo "k6 test failed, checking logs..."
+              docker compose -f docker-compose.perf.yml logs k6 || true
+              exit 1
+            }
         continue-on-error: true
 
       - name: Collect orchestrator logs

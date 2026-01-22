@@ -63,18 +63,23 @@ export function setup() {
 }
 
 export default function (data) {
-  // Generate a batch of events
-  const events = [];
-  for (let i = 0; i < EVENTS_PER_REQUEST; i++) {
-    events.push(generateOrderEvent());
+  try {
+    // Generate a batch of events
+    const events = [];
+    for (let i = 0; i < EVENTS_PER_REQUEST; i++) {
+      events.push(generateOrderEvent());
+    }
+    
+    // Submit bulk events
+    const result = submitBulkEvents(events);
+    
+    // Small sleep to avoid overwhelming the system
+    // This creates a realistic request rate
+    sleep(0.1); // 100ms between requests = ~10 requests/sec per VU
+  } catch (error) {
+    console.error(`Error in default function: ${error.message}`);
+    throw error;
   }
-  
-  // Submit bulk events
-  const result = submitBulkEvents(events);
-  
-  // Small sleep to avoid overwhelming the system
-  // This creates a realistic request rate
-  sleep(0.1); // 100ms between requests = ~10 requests/sec per VU
 }
 
 export function teardown(data) {
