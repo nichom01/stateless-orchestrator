@@ -63,17 +63,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Start performance test environment
+      - name: Initialize Docker Swarm (if using swarm mode)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker swarm init || echo "Swarm already initialized"
+
+      - name: Build orchestrator image
+        run: |
+          if [ "${{ env.DEPLOYMENT_MODE }}" == "swarm" ]; then
+            docker build -t stateless-orchestrator:latest .
+          else
+            docker compose -f docker-compose.perf.yml build orchestrator
+          fi
+
+      - name: Start performance test environment (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml up -d localstack prometheus
           echo "Waiting for LocalStack to be ready..."
           sleep 10
 
-      - name: Build orchestrator image
-        run: |
-          docker compose -f docker-compose.perf.yml build orchestrator
-
-      - name: Start orchestrator
+      - name: Start orchestrator (Compose)
+        if: env.DEPLOYMENT_MODE == 'compose'
         run: |
           docker compose -f docker-compose.perf.yml up -d orchestrator
           echo "Waiting for orchestrator to be healthy..."
@@ -85,6 +96,57 @@ jobs:
             if [ $i -eq 60 ]; then
               echo "Orchestrator failed to become healthy"
               docker logs perf-orchestrator
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Start performance test environment (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          docker stack deploy -c docker-compose.swarm.yml perf-test
+          echo "Waiting for stack to be deployed..."
+          sleep 10
+          
+          # Verify network exists
+          echo "Verifying network exists..."
+          for i in {1..30}; do
+            if docker network ls | grep -q "perf-test_perf-network"; then
+              echo "Network perf-test_perf-network found"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Network not found after 30 seconds"
+              docker network ls
+              docker stack services perf-test
+              exit 1
+            fi
+            sleep 1
+          done
+          
+          echo "Waiting for services to start..."
+          sleep 10
+
+      - name: Wait for orchestrator to be healthy (Swarm)
+        if: env.DEPLOYMENT_MODE == 'swarm'
+        run: |
+          echo "Waiting for orchestrator service to be healthy..."
+          for i in {1..60}; do
+            if docker service ps perf-test_orchestrator --format "{{.CurrentState}}" | grep -q "Running"; then
+              TASK_ID=$(docker service ps perf-test_orchestrator --format "{{.ID}}" --filter "desired-state=running" | head -n1)
+              if [ -n "$TASK_ID" ]; then
+                CONTAINER_ID=$(docker inspect --format '{{.Status.ContainerStatus.ContainerID}}' $TASK_ID 2>/dev/null || echo "")
+                if [ -n "$CONTAINER_ID" ]; then
+                  if docker exec $CONTAINER_ID curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                    echo "Orchestrator is healthy"
+                    break
+                  fi
+                fi
+              fi
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Orchestrator failed to become healthy"
+              docker service logs perf-test_orchestrator --tail 50
               exit 1
             fi
             sleep 2
@@ -149,13 +211,20 @@ jobs:
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
           
+          # Verify Docker Swarm is initialized
+          if ! docker info | grep -q "Swarm: active"; then
+            echo "Error: Docker Swarm is not initialized"
+            echo "Please ensure Swarm is initialized before running tests"
+            exit 1
+          fi
+          
           # Verify network exists before creating service
           if ! docker network ls | grep -q "perf-test_perf-network"; then
             echo "Error: Network perf-test_perf-network not found"
             echo "Available networks:"
             docker network ls
             echo "Stack services:"
-            docker stack services perf-test
+            docker stack services perf-test 2>&1 || echo "Stack not deployed"
             exit 1
           fi
           

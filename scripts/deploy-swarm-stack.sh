@@ -140,11 +140,77 @@ case "$ACTION" in
             exit 1
         fi
         
+        # Check if Docker Swarm is initialized
+        if ! docker info | grep -q "Swarm: active"; then
+            echo -e "${YELLOW}Docker Swarm is not initialized. Initializing...${NC}"
+            docker swarm init || {
+                echo -e "${RED}✗ Failed to initialize Docker Swarm${NC}"
+                exit 1
+            }
+            echo -e "${GREEN}✓ Docker Swarm initialized${NC}"
+        fi
+        
+        # Check if stack is deployed
+        if ! docker stack ls | grep -q "^${STACK_NAME} "; then
+            echo -e "${YELLOW}Stack ${STACK_NAME} is not deployed. Deploying...${NC}"
+            cd "$PROJECT_ROOT"
+            
+            # Check if orchestrator image exists
+            if ! docker image inspect "$ORCHESTRATOR_IMAGE" &>/dev/null; then
+                echo -e "${YELLOW}Orchestrator image not found. Building...${NC}"
+                docker build -t "$ORCHESTRATOR_IMAGE" . || {
+                    echo -e "${RED}✗ Failed to build orchestrator image${NC}"
+                    exit 1
+                }
+                echo -e "${GREEN}✓ Orchestrator image built${NC}"
+            fi
+            
+            # Deploy the stack
+            docker stack deploy -c "$COMPOSE_FILE" "$STACK_NAME" || {
+                echo -e "${RED}✗ Failed to deploy stack${NC}"
+                exit 1
+            }
+            echo -e "${GREEN}✓ Stack deployed${NC}"
+            echo -e "${YELLOW}Waiting for network to be created...${NC}"
+            sleep 5
+            
+            # Verify network exists
+            for i in {1..30}; do
+                if docker network ls | grep -q "${STACK_NAME}_perf-network"; then
+                    echo -e "${GREEN}✓ Network ${STACK_NAME}_perf-network found${NC}"
+                    break
+                fi
+                if [ $i -eq 30 ]; then
+                    echo -e "${RED}✗ Network not found after 30 seconds${NC}"
+                    docker network ls
+                    docker stack services "$STACK_NAME"
+                    exit 1
+                fi
+                sleep 1
+            done
+        else
+            # Verify network exists
+            if ! docker network ls | grep -q "${STACK_NAME}_perf-network"; then
+                echo -e "${RED}Error: Network ${STACK_NAME}_perf-network not found${NC}"
+                echo "Available networks:"
+                docker network ls
+                echo "Stack services:"
+                docker stack services "$STACK_NAME"
+                exit 1
+            fi
+        fi
+        
         echo -e "${CYAN}Running k6 ${TEST_TYPE} test in Swarm...${NC}"
+        
+        # Create results directory
+        mkdir -p "$PROJECT_ROOT/perf-tests/results"
+        
+        TIMESTAMP=$(date +%s)
+        SERVICE_NAME="${STACK_NAME}_k6_${TEST_TYPE}_${TIMESTAMP}"
         
         # Create a temporary service to run k6
         docker service create \
-            --name "${STACK_NAME}_k6_${TEST_TYPE}_$(date +%s)" \
+            --name "${SERVICE_NAME}" \
             --network "${STACK_NAME}_perf-network" \
             --mount type=bind,source="$PROJECT_ROOT/perf-tests",target=/scripts \
             --mount type=bind,source="$PROJECT_ROOT/examples",target=/examples \
@@ -153,14 +219,50 @@ case "$ACTION" in
             -e EVENTS_PER_REQUEST=100 \
             --restart-condition none \
             grafana/k6:latest \
-            run "/scripts/${TEST_TYPE}-test.js" || {
-            echo -e "${RED}✗ Failed to run k6 test${NC}"
+            run --out json=/results/${TEST_TYPE}-test-results.json --summary-export=/results/${TEST_TYPE}-test-summary.json "/scripts/${TEST_TYPE}-test.js" || {
+            echo -e "${RED}✗ Failed to create k6 test service${NC}"
             exit 1
         }
         
         echo -e "${GREEN}✓ k6 test service created${NC}"
-        echo -e "${YELLOW}Monitor progress:${NC}"
-        echo -e "  docker service logs -f ${STACK_NAME}_k6_${TEST_TYPE}_*"
+        echo -e "${YELLOW}Waiting for k6 service to complete...${NC}"
+        
+        # Wait for service to complete
+        for i in {1..600}; do
+            SERVICE_STATE=$(docker service ps "${SERVICE_NAME}" --format "{{.CurrentState}}" --no-trunc 2>/dev/null | head -n1 || echo "")
+            if [ -z "$SERVICE_STATE" ] || echo "$SERVICE_STATE" | grep -q "Complete\|Shutdown\|Failed"; then
+                echo -e "${GREEN}✓ Service completed${NC}"
+                break
+            fi
+            if [ $i -eq 600 ]; then
+                echo -e "${YELLOW}⚠ Service timeout after 10 minutes${NC}"
+                break
+            fi
+            sleep 1
+        done
+        
+        # Get logs
+        echo -e "${CYAN}Collecting k6 logs...${NC}"
+        docker service logs "${SERVICE_NAME}" 2>&1 || true
+        
+        # Check exit code
+        TASK_ID=$(docker service ps "${SERVICE_NAME}" --format "{{.ID}}" --filter "desired-state=shutdown" | head -n1)
+        if [ -n "$TASK_ID" ]; then
+            EXIT_CODE=$(docker inspect --format '{{.Status.ContainerStatus.ExitCode}}' "$TASK_ID" 2>/dev/null || echo "0")
+            if [ "$EXIT_CODE" != "0" ]; then
+                echo -e "${RED}✗ k6 test failed with exit code: ${EXIT_CODE}${NC}"
+                docker service rm "${SERVICE_NAME}" || true
+                exit 1
+            fi
+        fi
+        
+        # Cleanup
+        docker service rm "${SERVICE_NAME}" || true
+        
+        echo -e "${GREEN}✓ Test completed!${NC}"
+        echo -e "${CYAN}Results:${NC}"
+        echo -e "  - JSON: perf-tests/results/${TEST_TYPE}-test-results.json"
+        echo -e "  - Summary: perf-tests/results/${TEST_TYPE}-test-summary.json"
         ;;
         
     *)
