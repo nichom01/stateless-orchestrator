@@ -14,6 +14,12 @@ services:
     volumes:
       - "./scripts/init-localstack.sh:/etc/localstack/init/ready.d/init-localstack.sh"
       - "perf_localstack_data:/var/lib/localstack"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       replicas: 1
       resources:
@@ -26,12 +32,6 @@ services:
       placement:
         constraints:
           - node.role == manager  # Bind mount requires manager node
-      healthcheck:
-        test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
-        interval: 10s
-        timeout: 5s
-        retries: 5
-        start_period: 10s
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -55,6 +55,12 @@ services:
       - ORCHESTRATOR_MESSAGING_SQS_ENDPOINT=http://localstack:4566
       - ORCHESTRATOR_MESSAGING_SQS_QUEUE_URL_PREFIX=http://localhost:4566/000000000000/
       - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Xmx1536m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     deploy:
       replicas: 3  # Horizontal scaling - 3 orchestrator instances
       resources:
@@ -64,12 +70,6 @@ services:
         reservations:
           cpus: '1'
           memory: 1G
-      healthcheck:
-        test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-        interval: 10s
-        timeout: 5s
-        retries: 10
-        start_period: 40s
       update_config:
         parallelism: 1
         delay: 10s
