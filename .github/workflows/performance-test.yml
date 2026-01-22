@@ -148,6 +148,17 @@ jobs:
           echo "Running k6 load test with Docker Swarm..."
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
+          
+          # Verify network exists before creating service
+          if ! docker network ls | grep -q "perf-test_perf-network"; then
+            echo "Error: Network perf-test_perf-network not found"
+            echo "Available networks:"
+            docker network ls
+            echo "Stack services:"
+            docker stack services perf-test
+            exit 1
+          fi
+          
           TIMESTAMP=$(date +%s)
           SERVICE_NAME="perf-test_k6_load_${TIMESTAMP}"
           docker service create \
@@ -281,8 +292,27 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           docker stack deploy -c docker-compose.swarm.yml perf-test
+          echo "Waiting for stack to be deployed..."
+          sleep 10
+          
+          # Verify network exists
+          echo "Verifying network exists..."
+          for i in {1..30}; do
+            if docker network ls | grep -q "perf-test_perf-network"; then
+              echo "Network perf-test_perf-network found"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Network not found after 30 seconds"
+              docker network ls
+              docker stack services perf-test
+              exit 1
+            fi
+            sleep 1
+          done
+          
           echo "Waiting for services to start..."
-          sleep 15
+          sleep 10
 
       - name: Wait for orchestrator to be healthy (Compose)
         if: env.DEPLOYMENT_MODE == 'compose'
@@ -357,6 +387,17 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           mkdir -p perf-tests/results
+          
+          # Verify network exists before creating service
+          if ! docker network ls | grep -q "perf-test_perf-network"; then
+            echo "Error: Network perf-test_perf-network not found"
+            echo "Available networks:"
+            docker network ls
+            echo "Stack services:"
+            docker stack services perf-test
+            exit 1
+          fi
+          
           TIMESTAMP=$(date +%s)
           SERVICE_NAME="perf-test_k6_stress_${TIMESTAMP}"
           docker service create \
@@ -487,8 +528,27 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           docker stack deploy -c docker-compose.swarm.yml perf-test
+          echo "Waiting for stack to be deployed..."
+          sleep 10
+          
+          # Verify network exists
+          echo "Verifying network exists..."
+          for i in {1..30}; do
+            if docker network ls | grep -q "perf-test_perf-network"; then
+              echo "Network perf-test_perf-network found"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Network not found after 30 seconds"
+              docker network ls
+              docker stack services perf-test
+              exit 1
+            fi
+            sleep 1
+          done
+          
           echo "Waiting for services to start..."
-          sleep 15
+          sleep 10
 
       - name: Wait for orchestrator to be healthy (Compose)
         if: env.DEPLOYMENT_MODE == 'compose'
@@ -556,6 +616,17 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           mkdir -p perf-tests/results
+          
+          # Verify network exists before creating service
+          if ! docker network ls | grep -q "perf-test_perf-network"; then
+            echo "Error: Network perf-test_perf-network not found"
+            echo "Available networks:"
+            docker network ls
+            echo "Stack services:"
+            docker stack services perf-test
+            exit 1
+          fi
+          
           TIMESTAMP=$(date +%s)
           SERVICE_NAME="perf-test_k6_spike_${TIMESTAMP}"
           docker service create \
