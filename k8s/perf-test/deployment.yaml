@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stateless-orchestrator
+  namespace: perf-test
+  labels:
+    app: orchestrator
+spec:
+  replicas: 3  # Horizontal scaling - 3 instances
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+      - name: orchestrator
+        image: stateless-orchestrator:latest
+        # Use local image for performance testing
+        # For production, use: ghcr.io/<owner>/stateless-orchestrator:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # For LocalStack SQS (dev)
+        - name: SPRING_PROFILES_ACTIVE
+          value: "dev"
+        - name: SPRING_APPLICATION_NAME
+          value: "stateless-orchestrator"
+        - name: ORCHESTRATOR_MESSAGING_BROKER
+          value: "sqs"
+        - name: ORCHESTRATOR_MESSAGING_SQS_REGION
+          value: "us-east-1"
+        - name: ORCHESTRATOR_MESSAGING_SQS_ENDPOINT
+          value: "http://localstack-service:4566"
+        - name: ORCHESTRATOR_MESSAGING_SQS_QUEUE_URL_PREFIX
+          value: "http://localstack-service:4566/000000000000/"
+        - name: JAVA_OPTS
+          value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Xmx1536m"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 40
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

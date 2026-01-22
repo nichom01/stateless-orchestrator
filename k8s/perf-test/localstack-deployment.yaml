@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  namespace: perf-test
+  labels:
+    app: localstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: localstack
+  template:
+    metadata:
+      labels:
+        app: localstack
+    spec:
+      containers:
+      - name: localstack
+        image: localstack/localstack:latest
+        ports:
+        - containerPort: 4566
+          name: api
+        env:
+        - name: SERVICES
+          value: "sqs"
+        - name: DEBUG
+          value: "0"
+        - name: DEFAULT_REGION
+          value: "us-east-1"
+        - name: PERSISTENCE
+          value: "1"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack-service
+  namespace: perf-test
+  labels:
+    app: localstack
+spec:
+  type: ClusterIP
+  selector:
+    app: localstack
+  ports:
+  - name: api
+    port: 4566
+    targetPort: 4566
+    protocol: TCP
