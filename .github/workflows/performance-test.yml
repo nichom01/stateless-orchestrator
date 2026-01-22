@@ -148,8 +148,10 @@ jobs:
           echo "Running k6 load test with Docker Swarm..."
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
+          TIMESTAMP=$(date +%s)
+          SERVICE_NAME="perf-test_k6_load_${TIMESTAMP}"
           docker service create \
-            --name perf-test_k6_load_$$(date +%s) \
+            --name "${SERVICE_NAME}" \
             --network perf-test_perf-network \
             --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
             --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
@@ -157,13 +159,39 @@ jobs:
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             --restart-condition none \
             grafana/k6:latest \
-            run --out json=/results/load-test-results.json --summary-export=/results/load-test-summary.json /scripts/load-test.js || {
-              echo "k6 test failed"
+            run --out json=/results/load-test-results.json --summary-export=/results/load-test-summary.json /scripts/load-test.js
+          
+          # Wait for service to complete
+          echo "Waiting for k6 service to complete..."
+          for i in {1..300}; do
+            SERVICE_STATE=$(docker service ps "${SERVICE_NAME}" --format "{{.CurrentState}}" --no-trunc 2>/dev/null | head -n1 || echo "")
+            if [ -z "$SERVICE_STATE" ] || echo "$SERVICE_STATE" | grep -q "Complete\|Shutdown\|Failed"; then
+              echo "Service completed"
+              break
+            fi
+            if [ $i -eq 300 ]; then
+              echo "Service timeout after 5 minutes"
+              break
+            fi
+            sleep 1
+          done
+          
+          # Get logs
+          echo "Collecting k6 logs..."
+          docker service logs "${SERVICE_NAME}" 2>&1 || true
+          
+          # Check exit code
+          TASK_ID=$(docker service ps "${SERVICE_NAME}" --format "{{.ID}}" --filter "desired-state=shutdown" | head -n1)
+          if [ -n "$TASK_ID" ]; then
+            EXIT_CODE=$(docker inspect --format '{{.Status.ContainerStatus.ExitCode}}' "$TASK_ID" 2>/dev/null || echo "0")
+            if [ "$EXIT_CODE" != "0" ]; then
+              echo "k6 test failed with exit code: $EXIT_CODE"
               exit 1
-            }
-          # Wait for service to complete and get logs
-          sleep 5
-          docker service ls | grep k6 || true
+            fi
+          fi
+          
+          # Cleanup
+          docker service rm "${SERVICE_NAME}" || true
         continue-on-error: true
 
       - name: Collect orchestrator logs (Compose)
@@ -329,8 +357,10 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           mkdir -p perf-tests/results
+          TIMESTAMP=$(date +%s)
+          SERVICE_NAME="perf-test_k6_stress_${TIMESTAMP}"
           docker service create \
-            --name perf-test_k6_stress_$$(date +%s) \
+            --name "${SERVICE_NAME}" \
             --network perf-test_perf-network \
             --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
             --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
@@ -338,8 +368,39 @@ jobs:
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             --restart-condition none \
             grafana/k6:latest \
-            run --out json=/results/stress-test-results.json --summary-export=/results/stress-test-summary.json /scripts/stress-test.js || true
-          sleep 5
+            run --out json=/results/stress-test-results.json --summary-export=/results/stress-test-summary.json /scripts/stress-test.js
+          
+          # Wait for service to complete
+          echo "Waiting for k6 service to complete..."
+          for i in {1..600}; do
+            SERVICE_STATE=$(docker service ps "${SERVICE_NAME}" --format "{{.CurrentState}}" --no-trunc 2>/dev/null | head -n1 || echo "")
+            if [ -z "$SERVICE_STATE" ] || echo "$SERVICE_STATE" | grep -q "Complete\|Shutdown\|Failed"; then
+              echo "Service completed"
+              break
+            fi
+            if [ $i -eq 600 ]; then
+              echo "Service timeout after 10 minutes"
+              break
+            fi
+            sleep 1
+          done
+          
+          # Get logs
+          echo "Collecting k6 logs..."
+          docker service logs "${SERVICE_NAME}" 2>&1 || true
+          
+          # Check exit code
+          TASK_ID=$(docker service ps "${SERVICE_NAME}" --format "{{.ID}}" --filter "desired-state=shutdown" | head -n1)
+          if [ -n "$TASK_ID" ]; then
+            EXIT_CODE=$(docker inspect --format '{{.Status.ContainerStatus.ExitCode}}' "$TASK_ID" 2>/dev/null || echo "0")
+            if [ "$EXIT_CODE" != "0" ]; then
+              echo "k6 stress test failed with exit code: $EXIT_CODE"
+              exit 1
+            fi
+          fi
+          
+          # Cleanup
+          docker service rm "${SERVICE_NAME}" || true
         continue-on-error: true
 
       - name: Collect orchestrator logs (Compose)
@@ -495,8 +556,10 @@ jobs:
         if: env.DEPLOYMENT_MODE == 'swarm'
         run: |
           mkdir -p perf-tests/results
+          TIMESTAMP=$(date +%s)
+          SERVICE_NAME="perf-test_k6_spike_${TIMESTAMP}"
           docker service create \
-            --name perf-test_k6_spike_$$(date +%s) \
+            --name "${SERVICE_NAME}" \
             --network perf-test_perf-network \
             --mount type=bind,source=${{ github.workspace }}/perf-tests,target=/scripts \
             --mount type=bind,source=${{ github.workspace }}/perf-tests/results,target=/results \
@@ -504,8 +567,39 @@ jobs:
             -e EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }} \
             --restart-condition none \
             grafana/k6:latest \
-            run --out json=/results/spike-test-results.json --summary-export=/results/spike-test-summary.json /scripts/spike-test.js || true
-          sleep 5
+            run --out json=/results/spike-test-results.json --summary-export=/results/spike-test-summary.json /scripts/spike-test.js
+          
+          # Wait for service to complete
+          echo "Waiting for k6 service to complete..."
+          for i in {1..300}; do
+            SERVICE_STATE=$(docker service ps "${SERVICE_NAME}" --format "{{.CurrentState}}" --no-trunc 2>/dev/null | head -n1 || echo "")
+            if [ -z "$SERVICE_STATE" ] || echo "$SERVICE_STATE" | grep -q "Complete\|Shutdown\|Failed"; then
+              echo "Service completed"
+              break
+            fi
+            if [ $i -eq 300 ]; then
+              echo "Service timeout after 5 minutes"
+              break
+            fi
+            sleep 1
+          done
+          
+          # Get logs
+          echo "Collecting k6 logs..."
+          docker service logs "${SERVICE_NAME}" 2>&1 || true
+          
+          # Check exit code
+          TASK_ID=$(docker service ps "${SERVICE_NAME}" --format "{{.ID}}" --filter "desired-state=shutdown" | head -n1)
+          if [ -n "$TASK_ID" ]; then
+            EXIT_CODE=$(docker inspect --format '{{.Status.ContainerStatus.ExitCode}}' "$TASK_ID" 2>/dev/null || echo "0")
+            if [ "$EXIT_CODE" != "0" ]; then
+              echo "k6 spike test failed with exit code: $EXIT_CODE"
+              exit 1
+            fi
+          fi
+          
+          # Cleanup
+          docker service rm "${SERVICE_NAME}" || true
         continue-on-error: true
 
       - name: Collect orchestrator logs (Compose)
