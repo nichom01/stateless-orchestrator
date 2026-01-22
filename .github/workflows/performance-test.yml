@@ -99,10 +99,15 @@ jobs:
       - name: Run load test
         run: |
           mkdir -p perf-tests/results
-          chmod 777 perf-tests/results
           echo "Running k6 load test..."
           echo "ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }}"
           echo "EVENTS_PER_REQUEST=${{ env.EVENTS_PER_REQUEST }}"
+          # Use docker to set permissions on the results directory
+          docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
+            --entrypoint /bin/sh \
+            -v ${{ github.workspace }}/perf-tests/results:/results \
+            k6 -c "chmod 777 /results || true"
           docker compose -f docker-compose.perf.yml run --rm \
             --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
@@ -208,7 +213,12 @@ jobs:
       - name: Run stress test
         run: |
           mkdir -p perf-tests/results
-          chmod 777 perf-tests/results
+          # Use docker to set permissions on the results directory
+          docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
+            --entrypoint /bin/sh \
+            -v ${{ github.workspace }}/perf-tests/results:/results \
+            k6 -c "chmod 777 /results || true"
           docker compose -f docker-compose.perf.yml run --rm \
             --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
@@ -300,7 +310,12 @@ jobs:
       - name: Run spike test
         run: |
           mkdir -p perf-tests/results
-          chmod 777 perf-tests/results
+          # Use docker to set permissions on the results directory
+          docker compose -f docker-compose.perf.yml run --rm \
+            --user root \
+            --entrypoint /bin/sh \
+            -v ${{ github.workspace }}/perf-tests/results:/results \
+            k6 -c "chmod 777 /results || true"
           docker compose -f docker-compose.perf.yml run --rm \
             --user root \
             -e ORCHESTRATOR_URL=${{ env.ORCHESTRATOR_URL }} \
