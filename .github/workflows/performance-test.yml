@@ -292,10 +292,19 @@ jobs:
       - name: Generate HTML report
         if: always()
         run: |
-          node perf-tests/scripts/generate-report.js \
-            --input perf-tests/results/load-test-results.json \
-            --output perf-tests/results/load-test-report.html \
-            --type load || echo "Report generation skipped"
+          if [ -f perf-tests/results/load-test-summary.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/load-test-summary.json \
+              --output perf-tests/results/load-test-report.html \
+              --type load || echo "Report generation skipped"
+          elif [ -f perf-tests/results/load-test-results.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/load-test-results.json \
+              --output perf-tests/results/load-test-report.html \
+              --type load || echo "Report generation skipped"
+          else
+            echo "No test results found for report generation"
+          fi
 
       - name: Upload test results
         if: always()
@@ -531,10 +540,19 @@ jobs:
       - name: Generate HTML report
         if: always()
         run: |
-          node perf-tests/scripts/generate-report.js \
-            --input perf-tests/results/stress-test-results.json \
-            --output perf-tests/results/stress-test-report.html \
-            --type stress || echo "Report generation skipped"
+          if [ -f perf-tests/results/stress-test-summary.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/stress-test-summary.json \
+              --output perf-tests/results/stress-test-report.html \
+              --type stress || echo "Report generation skipped"
+          elif [ -f perf-tests/results/stress-test-results.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/stress-test-results.json \
+              --output perf-tests/results/stress-test-report.html \
+              --type stress || echo "Report generation skipped"
+          else
+            echo "No test results found for report generation"
+          fi
 
       - name: Upload test results
         if: always()
@@ -755,9 +773,19 @@ jobs:
       - name: Generate HTML report
         if: always()
         run: |
-          node perf-tests/scripts/generate-report.js \
-            --input perf-tests/results/spike-test-results.json \
-            --type spike || echo "Report generation skipped"
+          if [ -f perf-tests/results/spike-test-summary.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/spike-test-summary.json \
+              --output perf-tests/results/spike-test-report.html \
+              --type spike || echo "Report generation skipped"
+          elif [ -f perf-tests/results/spike-test-results.json ]; then
+            node perf-tests/scripts/generate-report.js \
+              --input perf-tests/results/spike-test-results.json \
+              --output perf-tests/results/spike-test-report.html \
+              --type spike || echo "Report generation skipped"
+          else
+            echo "No test results found for report generation"
+          fi
 
       - name: Upload test results
         if: always()
