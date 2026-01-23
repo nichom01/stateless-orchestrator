@@ -9,8 +9,8 @@ import com.neversoft.orchestrator.routing.RoutingEngine;
 import com.neversoft.orchestrator.routing.RoutingResult;
 import com.neversoft.orchestrator.service.OrchestratorService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,13 +20,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 /**
  * REST API for testing and managing the orchestrator
  */
 @RestController
 @RequestMapping("/api/orchestrator")
-@RequiredArgsConstructor
 @Slf4j
 public class OrchestratorController {
     
@@ -34,6 +38,19 @@ public class OrchestratorController {
     private final RoutingEngine routingEngine;
     private final OrchestrationConfigLoader configLoader;
     private final ObjectMapper objectMapper;
+    private final Executor bulkProcessingExecutor;
+    
+    public OrchestratorController(OrchestratorService orchestratorService,
+                                  RoutingEngine routingEngine,
+                                  OrchestrationConfigLoader configLoader,
+                                  ObjectMapper objectMapper,
+                                  @Qualifier("bulkProcessingExecutor") Executor bulkProcessingExecutor) {
+        this.orchestratorService = orchestratorService;
+        this.routingEngine = routingEngine;
+        this.configLoader = configLoader;
+        this.objectMapper = objectMapper;
+        this.bulkProcessingExecutor = bulkProcessingExecutor;
+    }
     
     /**
      * Submit an event for processing
@@ -51,44 +68,52 @@ public class OrchestratorController {
     }
     
     /**
-     * Submit multiple events for bulk processing
+     * Submit multiple events for bulk processing (OPTIMIZED - Parallel Processing)
      * Accepts a JSON array of events or a BulkEventRequest wrapper
+     * Processes events in parallel using a dedicated thread pool executor
      */
     @PostMapping("/events/bulk")
     public ResponseEntity<BulkEventResponse> submitBulkEvents(@RequestBody BulkEventRequest request) {
         long startTime = System.currentTimeMillis();
         
-        int successful = 0;
-        int failed = 0;
-        java.util.List<BulkEventResponse.FailedEvent> failures = new java.util.ArrayList<>();
+        List<Event> events = request.getEvents();
+        AtomicInteger successful = new AtomicInteger(0);
+        AtomicInteger failed = new AtomicInteger(0);
+        ConcurrentLinkedQueue<BulkEventResponse.FailedEvent> failures = new ConcurrentLinkedQueue<>();
         
-        for (Event event : request.getEvents()) {
-            try {
-                orchestratorService.processEvent(event);
-                successful++;
-            } catch (Exception e) {
-                failed++;
-                
-                BulkEventResponse.FailedEvent failedEvent = BulkEventResponse.FailedEvent.builder()
-                        .eventId(event.getEventId())
-                        .correlationId(event.getCorrelationId())
-                        .type(event.getType())
-                        .error(e.getMessage())
-                        .build();
-                
-                failures.add(failedEvent);
-            }
-        }
+        // Process events in parallel using CompletableFuture
+        List<CompletableFuture<Void>> futures = events.stream()
+                .map(event -> CompletableFuture.runAsync(() -> {
+                    try {
+                        orchestratorService.processEvent(event);
+                        successful.incrementAndGet();
+                    } catch (Exception e) {
+                        failed.incrementAndGet();
+                        failures.add(BulkEventResponse.FailedEvent.builder()
+                                .eventId(event.getEventId())
+                                .correlationId(event.getCorrelationId())
+                                .type(event.getType())
+                                .error(e.getMessage())
+                                .build());
+                    }
+                }, bulkProcessingExecutor))
+                .collect(Collectors.toList());
+        
+        // Wait for all futures to complete
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         
         long durationMs = System.currentTimeMillis() - startTime;
         
         BulkEventResponse response = BulkEventResponse.builder()
-                .total(request.getEvents().size())
-                .successful(successful)
-                .failed(failed)
-                .failures(failures)
+                .total(events.size())
+                .successful(successful.get())
+                .failed(failed.get())
+                .failures(new ArrayList<>(failures))
                 .durationMs(durationMs)
                 .build();
+        
+        log.info("Bulk processing completed: {} events in {}ms ({} successful, {} failed)", 
+                events.size(), durationMs, successful.get(), failed.get());
         
         return ResponseEntity.accepted().body(response);
     }

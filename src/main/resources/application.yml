@@ -42,6 +42,11 @@ orchestrator:
   messaging:
     # Default to sqs, can be overridden via environment variable MESSAGING_BROKER
     broker: ${MESSAGING_BROKER:sqs}
+  
+  # Bulk processing configuration
+  bulk:
+    processing:
+      threads: ${BULK_PROCESSING_THREADS:50}  # Number of parallel threads for bulk processing
 
 # Actuator Configuration
 management:
