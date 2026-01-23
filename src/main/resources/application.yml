@@ -46,7 +46,7 @@ orchestrator:
   # Bulk processing configuration
   bulk:
     processing:
-      threads: ${BULK_PROCESSING_THREADS:50}  # Number of parallel threads for bulk processing
+      threads: ${BULK_PROCESSING_THREADS:100}  # Increased default from 50 to 100 for better throughput
 
 # Actuator Configuration
 management:

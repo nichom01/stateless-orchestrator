@@ -10,6 +10,9 @@ import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Main orchestrator service that coordinates routing and dispatching
  */
@@ -57,7 +60,7 @@ public class OrchestratorService {
      * Process an incoming event: route it and dispatch to target
      */
     public void processEvent(Event event) {
-        log.info("Processing event: type={}, orchestration={}, eventId={}, correlationId={}", 
+        log.debug("Processing event: type={}, orchestration={}, eventId={}, correlationId={}", 
                 event.getType(), event.getOrchestrationName(), event.getEventId(), event.getCorrelationId());
         
         eventsProcessed.increment();
@@ -78,7 +81,7 @@ public class OrchestratorService {
                 
                 eventsRouted.increment();
                 
-                log.info("Event routed successfully: type={}, target={}", 
+                log.debug("Event routed successfully: type={}, target={}", 
                         event.getType(), result.getTarget());
             } else {
                 eventsFailed.increment();
@@ -106,13 +109,59 @@ public class OrchestratorService {
     }
     
     /**
+     * Process multiple events in batch with optimized batch dispatching
+     */
+    public void processEventsBatch(List<Event> events) {
+        log.debug("Processing batch of {} events", events.size());
+        
+        List<Event> routedEvents = new ArrayList<>();
+        List<String> targets = new ArrayList<>();
+        
+        for (Event event : events) {
+            eventsProcessed.increment();
+            
+            try {
+                auditService.logEvent(event, "RECEIVED", null);
+                
+                RoutingResult result = routingTimer.record(() -> routingEngine.route(event));
+                
+                if (result.isSuccess()) {
+                    routedEvents.add(event);
+                    targets.add(result.getTarget());
+                    auditService.logEvent(event, "ROUTED", result.getTarget());
+                    eventsRouted.increment();
+                } else {
+                    eventsFailed.increment();
+                    auditService.logEvent(event, "FAILED", result.getErrorMessage());
+                    log.error("Failed to route event: type={}, error={}", 
+                            event.getType(), result.getErrorMessage());
+                    handleFailedEvent(event, result);
+                }
+            } catch (Exception e) {
+                eventsFailed.increment();
+                log.error("Error processing event in batch: type={}, eventId={}", 
+                        event.getType(), event.getEventId(), e);
+                auditService.logEvent(event, "ERROR", e.getMessage());
+                handleFailedEvent(event, RoutingResult.error(event.getType(), e.getMessage()));
+            }
+        }
+        
+        // Dispatch all routed events in batches
+        if (!routedEvents.isEmpty()) {
+            eventDispatcher.dispatchBatch(routedEvents, targets);
+        }
+        
+        log.debug("Batch processing completed: {} events", events.size());
+    }
+    
+    /**
      * Handle events that failed to route
      */
     private void handleFailedEvent(Event event, RoutingResult result) {
         try {
             // Send to dead letter queue for manual review
             eventDispatcher.dispatch(event, "dead-letter-queue");
-            log.info("Event sent to dead letter queue: eventId={}", event.getEventId());
+            log.debug("Event sent to dead letter queue: eventId={}", event.getEventId());
         } catch (Exception e) {
             log.error("Failed to send event to dead letter queue: eventId={}", event.getEventId(), e);
         }

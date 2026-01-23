@@ -7,8 +7,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Dispatches events to target queues/services
@@ -27,7 +30,7 @@ public class EventDispatcher {
      */
     public void dispatch(Event event, String target) {
         try {
-            log.info("Dispatching event: type={}, target={}, correlationId={}", 
+            log.debug("Dispatching event: type={}, target={}, correlationId={}", 
                     event.getType(), target, event.getCorrelationId());
             
             String eventJson = objectMapper.writeValueAsString(event);
@@ -44,6 +47,59 @@ public class EventDispatcher {
             log.error("Failed to dispatch event: eventId={}, target={}", 
                     event.getEventId(), target, e);
             throw new RuntimeException("Failed to dispatch event", e);
+        }
+    }
+    
+    /**
+     * Dispatch multiple events to their respective target queues in batches
+     * Groups events by target queue and sends in batches for optimal performance
+     */
+    public void dispatchBatch(List<Event> events, List<String> targets) {
+        if (events == null || events.isEmpty() || targets == null || targets.size() != events.size()) {
+            throw new IllegalArgumentException("Events and targets lists must be non-empty and same size");
+        }
+        
+        try {
+            // Group events by target queue
+            Map<String, List<Event>> eventsByQueue = new HashMap<>();
+            for (int i = 0; i < events.size(); i++) {
+                String target = targets.get(i);
+                eventsByQueue.computeIfAbsent(target, k -> new ArrayList<>()).add(events.get(i));
+            }
+            
+            log.debug("Dispatching batch of {} events to {} queues", events.size(), eventsByQueue.size());
+            
+            // Send each queue's events in a batch
+            for (Map.Entry<String, List<Event>> entry : eventsByQueue.entrySet()) {
+                String target = entry.getKey();
+                List<Event> queueEvents = entry.getValue();
+                
+                List<String> messages = queueEvents.stream()
+                    .map(event -> {
+                        try {
+                            return objectMapper.writeValueAsString(event);
+                        } catch (Exception e) {
+                            log.error("Failed to serialize event: {}", event.getEventId(), e);
+                            return null;
+                        }
+                    })
+                    .filter(msg -> msg != null)
+                    .collect(Collectors.toList());
+                
+                List<Map<String, String>> attributesList = queueEvents.stream()
+                    .map(this::buildMessageAttributes)
+                    .collect(Collectors.toList());
+                
+                if (!messages.isEmpty()) {
+                    messageBroker.sendBatchToQueue(target, messages, attributesList);
+                }
+            }
+            
+            log.debug("Batch dispatch completed: {} events", events.size());
+            
+        } catch (Exception e) {
+            log.error("Failed to dispatch batch of events", e);
+            throw new RuntimeException("Failed to dispatch batch", e);
         }
     }
     

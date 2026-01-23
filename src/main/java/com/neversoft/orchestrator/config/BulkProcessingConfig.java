@@ -20,7 +20,7 @@ public class BulkProcessingConfig {
     
     @Bean(name = "bulkProcessingExecutor")
     public Executor bulkProcessingExecutor(
-            @Value("${orchestrator.bulk.processing.threads:50}") int threadPoolSize) {
+            @Value("${orchestrator.bulk.processing.threads:100}") int threadPoolSize) {
         log.info("Configuring bulk processing executor with {} threads", threadPoolSize);
         
         return Executors.newFixedThreadPool(threadPoolSize, new ThreadFactory() {
