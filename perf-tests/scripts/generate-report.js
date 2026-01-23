@@ -45,6 +45,44 @@ function parseSummaryJSON(jsonPath) {
     console.log('Debug: bulk_request_latency_ms:', data.metrics?.bulk_request_latency_ms);
     console.log('Debug: http_req_duration:', data.metrics?.http_req_duration);
     
+    // Extract test duration from root_group or calculate from metrics
+    let testDuration = 0;
+    
+    // Try multiple ways to get test duration
+    if (data.root_group?.duration) {
+      // Duration is in milliseconds, convert to seconds
+      testDuration = data.root_group.duration / 1000;
+    } else if (data.state?.testRunDurationMs) {
+      testDuration = data.state.testRunDurationMs / 1000;
+    } else if (data.root_group?.execution_duration) {
+      // Alternative duration field
+      testDuration = data.root_group.execution_duration / 1000;
+    } else if (data.metrics?.http_req_duration) {
+      // Calculate from first and last request timestamps if available
+      const httpDuration = data.metrics.http_req_duration;
+      if (httpDuration.values && httpDuration.values.length > 0) {
+        const timestamps = httpDuration.values.map(v => v.time || 0).filter(t => t > 0);
+        if (timestamps.length > 1) {
+          const sorted = timestamps.sort((a, b) => a - b);
+          testDuration = (sorted[sorted.length - 1] - sorted[0]) / 1000;
+        }
+      } else if (httpDuration.min !== undefined && httpDuration.max !== undefined) {
+        // Fallback: estimate from min/max if timestamps not available
+        // This is less accurate but better than nothing
+        const estimatedDuration = (httpDuration.max - httpDuration.min) / 1000;
+        if (estimatedDuration > 0) {
+          testDuration = estimatedDuration;
+        }
+      }
+    }
+    
+    // Debug logging
+    if (testDuration > 0) {
+      console.log(`Debug: Test duration: ${testDuration}s`);
+    } else {
+      console.log('Debug: Could not determine test duration from summary JSON');
+    }
+    
     const result = {
       totalEvents: data.metrics?.events_submitted?.count || 0,
       errorRate: data.metrics?.http_req_failed?.value || 0,
@@ -52,6 +90,7 @@ function parseSummaryJSON(jsonPath) {
       bulkLatency: data.metrics?.bulk_request_latency_ms || {},
       iterations: data.metrics?.iterations?.count || 0,
       checks: data.metrics?.checks || {},
+      testDuration: testDuration,
       isSummaryFormat: true
     };
     
@@ -192,12 +231,13 @@ function safeFormatInt(value) {
 
 // Generate HTML report
 function generateHTMLReport(data, testType) {
-  let totalEvents, errorRate, durationStats, latencyStats;
+  let totalEvents, errorRate, durationStats, latencyStats, testDuration, eventsPerSecond;
   
   // Handle summary JSON format (pre-calculated stats)
   if (data.isSummaryFormat) {
     totalEvents = data.totalEvents || 0;
     errorRate = data.errorRate || 0;
+    testDuration = data.testDuration || 0;
     
     // Extract pre-calculated statistics from summary format
     const httpDuration = data.httpReqDuration || {};
@@ -245,7 +285,21 @@ function generateHTMLReport(data, testType) {
     errorRate = httpReqFailed.length > 0 
       ? httpReqFailed.reduce((sum, v) => sum + (v.value || 0), 0) / httpReqFailed.length 
       : 0;
+    
+    // Calculate test duration from timestamps
+    const allTimestamps = [
+      ...httpReqDuration.map(v => v.time || 0),
+      ...bulkLatency.map(v => v.time || 0)
+    ].filter(t => t > 0);
+    
+    if (allTimestamps.length > 1) {
+      const sorted = allTimestamps.sort((a, b) => a - b);
+      testDuration = (sorted[sorted.length - 1] - sorted[0]) / 1000; // Convert ms to seconds
+    }
   }
+  
+  // Calculate events per second
+  eventsPerSecond = testDuration > 0 ? totalEvents / testDuration : 0;
   
   return `<!DOCTYPE html>
 <html lang="en">
@@ -357,6 +411,10 @@ function generateHTMLReport(data, testType) {
                 <div class="metric-value">${safeFormatInt(totalEvents)}<span class="metric-unit">events</span></div>
             </div>
             <div class="metric-card">
+                <div class="metric-label">Events Per Second</div>
+                <div class="metric-value">${safeFormat(eventsPerSecond, 1)}<span class="metric-unit">events/s</span></div>
+            </div>
+            <div class="metric-card">
                 <div class="metric-label">Error Rate</div>
                 <div class="metric-value">${safeFormat(errorRate * 100)}<span class="metric-unit">%</span></div>
             </div>
@@ -421,6 +479,14 @@ function generateHTMLReport(data, testType) {
                     <tr>
                         <td><strong>Total Events Processed</strong></td>
                         <td>${safeFormatInt(totalEvents)}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Test Duration</strong></td>
+                        <td>${testDuration > 0 ? safeFormat(testDuration, 1) + 's' : 'N/A'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Events Per Second</strong></td>
+                        <td>${safeFormat(eventsPerSecond, 1)} events/s</td>
                     </tr>
                     <tr>
                         <td><strong>Error Rate</strong></td>

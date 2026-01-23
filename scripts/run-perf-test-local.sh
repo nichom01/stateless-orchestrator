@@ -51,11 +51,21 @@ docker-compose -f "$COMPOSE_FILE" up -d orchestrator
 
 # Wait for orchestrator to be healthy
 echo -e "${YELLOW}Waiting for orchestrator to be healthy...${NC}"
-timeout 120 bash -c 'until docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; do sleep 2; done' || {
+MAX_WAIT=120
+ELAPSED=0
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+    if docker exec perf-orchestrator curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+done
+
+if [ $ELAPSED -ge $MAX_WAIT ]; then
     echo -e "${RED}✗ Orchestrator failed to become healthy${NC}"
     docker-compose -f "$COMPOSE_FILE" logs orchestrator
     exit 1
-}
+fi
 
 echo -e "${GREEN}✓ Orchestrator is healthy${NC}"
 echo ""
@@ -68,6 +78,11 @@ fi
 
 # Determine test script
 TEST_SCRIPT="/scripts/${TEST_TYPE}-test.js"
+# Use /results inside container (mapped to perf-tests/results on host)
+CONTAINER_RESULTS_DIR="/results"
+CONTAINER_RESULTS_FILE="${CONTAINER_RESULTS_DIR}/${TEST_TYPE}-test-results.json"
+CONTAINER_SUMMARY_FILE="${CONTAINER_RESULTS_DIR}/${TEST_TYPE}-test-summary.json"
+# Host paths for post-processing
 RESULTS_FILE="${RESULTS_DIR}/${TEST_TYPE}-test-results.json"
 SUMMARY_FILE="${RESULTS_DIR}/${TEST_TYPE}-test-summary.json"
 
@@ -80,8 +95,8 @@ docker-compose -f "$COMPOSE_FILE" run --rm \
     -e ORCHESTRATOR_URL=http://orchestrator:8080 \
     -e EVENTS_PER_REQUEST=100 \
     k6 run \
-    --out json="$RESULTS_FILE" \
-    --summary-export="$SUMMARY_FILE" \
+    --out json="$CONTAINER_RESULTS_FILE" \
+    --summary-export="$CONTAINER_SUMMARY_FILE" \
     "$TEST_SCRIPT" || {
     echo -e "${YELLOW}⚠ Test completed with errors (check results)${NC}"
 }

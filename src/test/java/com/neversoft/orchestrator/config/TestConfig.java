@@ -32,6 +32,12 @@ public class TestConfig {
                 // No-op for testing
                 System.out.println("Test MessageBroker: Would send message to " + queueName + " with attributes");
             }
+            
+            @Override
+            public void sendBatchToQueue(String queueName, java.util.List<String> messages, java.util.List<java.util.Map<String, String>> attributesList) {
+                // No-op for testing
+                System.out.println("Test MessageBroker: Would send batch of " + messages.size() + " messages to " + queueName);
+            }
         };
     }
 }
