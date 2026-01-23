@@ -39,8 +39,13 @@ function parseSummaryJSON(jsonPath) {
     const content = fs.readFileSync(jsonPath, 'utf8');
     const data = JSON.parse(content);
     
-    // Extract pre-calculated metrics from summary format
-    return {
+    // Debug logging to verify data extraction
+    console.log('Debug: Extracting metrics from summary JSON...');
+    console.log('Debug: events_submitted:', data.metrics?.events_submitted);
+    console.log('Debug: bulk_request_latency_ms:', data.metrics?.bulk_request_latency_ms);
+    console.log('Debug: http_req_duration:', data.metrics?.http_req_duration);
+    
+    const result = {
       totalEvents: data.metrics?.events_submitted?.count || 0,
       errorRate: data.metrics?.http_req_failed?.value || 0,
       httpReqDuration: data.metrics?.http_req_duration || {},
@@ -49,6 +54,11 @@ function parseSummaryJSON(jsonPath) {
       checks: data.metrics?.checks || {},
       isSummaryFormat: true
     };
+    
+    console.log('Debug: Extracted totalEvents:', result.totalEvents);
+    console.log('Debug: Extracted bulkLatency:', result.bulkLatency);
+    
+    return result;
   } catch (error) {
     console.error(`Error parsing summary JSON: ${error.message}`);
     return { isSummaryFormat: false };
@@ -162,6 +172,22 @@ function calculateStats(values) {
     p99: sorted[Math.floor(len * 0.99)],
     count: len,
   };
+}
+
+// Safe formatting helper - handles undefined/null values gracefully
+function safeFormat(value, decimals = 2) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 'N/A';
+  }
+  return Number(value).toFixed(decimals);
+}
+
+// Safe formatting for integers
+function safeFormatInt(value) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 'N/A';
+  }
+  return Math.round(Number(value)).toLocaleString();
 }
 
 // Generate HTML report
@@ -328,19 +354,19 @@ function generateHTMLReport(data, testType) {
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-label">Total Events</div>
-                <div class="metric-value">${totalEvents.toLocaleString()}<span class="metric-unit">events</span></div>
+                <div class="metric-value">${safeFormatInt(totalEvents)}<span class="metric-unit">events</span></div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Error Rate</div>
-                <div class="metric-value">${(errorRate * 100).toFixed(2)}<span class="metric-unit">%</span></div>
+                <div class="metric-value">${safeFormat(errorRate * 100)}<span class="metric-unit">%</span></div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Avg Latency</div>
-                <div class="metric-value">${latencyStats ? latencyStats.avg.toFixed(0) : 'N/A'}<span class="metric-unit">ms</span></div>
+                <div class="metric-value">${safeFormatInt(latencyStats?.avg)}<span class="metric-unit">ms</span></div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">P95 Latency</div>
-                <div class="metric-value">${latencyStats ? latencyStats.p95.toFixed(0) : 'N/A'}<span class="metric-unit">ms</span></div>
+                <div class="metric-value">${safeFormatInt(latencyStats?.p95)}<span class="metric-unit">ms</span></div>
             </div>
         </div>
         
@@ -362,23 +388,23 @@ function generateHTMLReport(data, testType) {
                 <tbody>
                     <tr>
                         <td>HTTP Request Duration (ms)</td>
-                        <td>${durationStats ? durationStats.min.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.avg.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.p50.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.p90.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.p95.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.p99.toFixed(2) : 'N/A'}</td>
-                        <td>${durationStats ? durationStats.max.toFixed(2) : 'N/A'}</td>
+                        <td>${safeFormat(durationStats?.min)}</td>
+                        <td>${safeFormat(durationStats?.avg)}</td>
+                        <td>${safeFormat(durationStats?.p50)}</td>
+                        <td>${safeFormat(durationStats?.p90)}</td>
+                        <td>${safeFormat(durationStats?.p95)}</td>
+                        <td>${safeFormat(durationStats?.p99)}</td>
+                        <td>${safeFormat(durationStats?.max)}</td>
                     </tr>
                     <tr>
                         <td>Bulk Request Latency (ms)</td>
-                        <td>${latencyStats ? latencyStats.min.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.avg.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.p50.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.p90.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.p95.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.p99.toFixed(2) : 'N/A'}</td>
-                        <td>${latencyStats ? latencyStats.max.toFixed(2) : 'N/A'}</td>
+                        <td>${safeFormat(latencyStats?.min)}</td>
+                        <td>${safeFormat(latencyStats?.avg)}</td>
+                        <td>${safeFormat(latencyStats?.p50)}</td>
+                        <td>${safeFormat(latencyStats?.p90)}</td>
+                        <td>${safeFormat(latencyStats?.p95)}</td>
+                        <td>${safeFormat(latencyStats?.p99)}</td>
+                        <td>${safeFormat(latencyStats?.max)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -394,19 +420,19 @@ function generateHTMLReport(data, testType) {
                     </tr>
                     <tr>
                         <td><strong>Total Events Processed</strong></td>
-                        <td>${totalEvents.toLocaleString()}</td>
+                        <td>${safeFormatInt(totalEvents)}</td>
                     </tr>
                     <tr>
                         <td><strong>Error Rate</strong></td>
-                        <td class="${errorRate < 0.01 ? 'status-pass' : 'status-fail'}">${(errorRate * 100).toFixed(2)}%</td>
+                        <td class="${errorRate < 0.01 ? 'status-pass' : 'status-fail'}">${safeFormat(errorRate * 100)}%</td>
                     </tr>
                     <tr>
                         <td><strong>Average Latency</strong></td>
-                        <td>${latencyStats ? latencyStats.avg.toFixed(2) : 'N/A'} ms</td>
+                        <td>${safeFormat(latencyStats?.avg)} ms</td>
                     </tr>
                     <tr>
                         <td><strong>P95 Latency</strong></td>
-                        <td class="${latencyStats && latencyStats.p95 < 500 ? 'status-pass' : 'status-fail'}">${latencyStats ? latencyStats.p95.toFixed(2) : 'N/A'} ms</td>
+                        <td class="${latencyStats && latencyStats.p95 < 500 ? 'status-pass' : 'status-fail'}">${safeFormat(latencyStats?.p95)} ms</td>
                     </tr>
                 </tbody>
             </table>
