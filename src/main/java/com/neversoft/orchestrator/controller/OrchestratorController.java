@@ -22,6 +22,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 /**
  * REST API for testing and managing the orchestrator
@@ -65,38 +68,54 @@ public class OrchestratorController {
     }
     
     /**
-     * Submit multiple events for bulk processing (OPTIMIZED - Async Fire-and-Forget)
+     * Submit multiple events for bulk processing (OPTIMIZED - Batch Processing)
      * Accepts a JSON array of events or a BulkEventRequest wrapper
-     * Returns immediately and processes events asynchronously in background
+     * Uses batch processing for optimal performance while maintaining synchronous response
      */
     @PostMapping("/events/bulk")
     public ResponseEntity<BulkEventResponse> submitBulkEvents(@RequestBody BulkEventRequest request) {
-        List<Event> events = request.getEvents();
+        long startTime = System.currentTimeMillis();
         
-        // Return immediately with accepted status
-        BulkEventResponse immediateResponse = BulkEventResponse.builder()
+        List<Event> events = request.getEvents();
+        AtomicInteger successful = new AtomicInteger(0);
+        AtomicInteger failed = new AtomicInteger(0);
+        ConcurrentLinkedQueue<BulkEventResponse.FailedEvent> failures = new ConcurrentLinkedQueue<>();
+        
+        // Process events in parallel using CompletableFuture, but wait for completion
+        List<CompletableFuture<Void>> futures = events.stream()
+                .map(event -> CompletableFuture.runAsync(() -> {
+                    try {
+                        orchestratorService.processEvent(event);
+                        successful.incrementAndGet();
+                    } catch (Exception e) {
+                        failed.incrementAndGet();
+                        failures.add(BulkEventResponse.FailedEvent.builder()
+                                .eventId(event.getEventId())
+                                .correlationId(event.getCorrelationId())
+                                .type(event.getType())
+                                .error(e.getMessage())
+                                .build());
+                    }
+                }, bulkProcessingExecutor))
+                .collect(Collectors.toList());
+        
+        // Wait for all futures to complete
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        
+        long durationMs = System.currentTimeMillis() - startTime;
+        
+        BulkEventResponse response = BulkEventResponse.builder()
                 .total(events.size())
-                .successful(0) // Will be updated asynchronously
-                .failed(0)
-                .failures(new ArrayList<>())
-                .durationMs(0) // Processing happens async
+                .successful(successful.get())
+                .failed(failed.get())
+                .failures(new ArrayList<>(failures))
+                .durationMs(durationMs)
                 .build();
         
-        // Process events asynchronously in background
-        CompletableFuture.runAsync(() -> {
-            long startTime = System.currentTimeMillis();
-            try {
-                // Use batch processing for better performance
-                orchestratorService.processEventsBatch(events);
-                long durationMs = System.currentTimeMillis() - startTime;
-                log.info("Bulk processing completed asynchronously: {} events in {}ms", 
-                        events.size(), durationMs);
-            } catch (Exception ex) {
-                log.error("Error in async bulk processing", ex);
-            }
-        }, bulkProcessingExecutor);
+        log.info("Bulk processing completed: {} events in {}ms ({} successful, {} failed)", 
+                events.size(), durationMs, successful.get(), failed.get());
         
-        return ResponseEntity.accepted().body(immediateResponse);
+        return ResponseEntity.accepted().body(response);
     }
     
     /**
